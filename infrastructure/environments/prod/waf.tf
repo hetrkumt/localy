@@ -3,7 +3,7 @@
 # -------------------------------------------------------------------------
 resource "aws_wafv2_web_acl" "ingress_waf" {
   name        = "prod-ingress-waf"
-  description = "WAF for Production ALB Ingress (Managed Rules)"
+  description = "WAF for Production ALB Ingress - Managed Rules"
   scope       = "REGIONAL" 
 
   default_action {
