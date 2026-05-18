@@ -1,0 +1,56 @@
+# ========================================================================
+# 📡 Karpenter 실전 부하 테스트 (Load Test) 배포 사양서
+# ========================================================================
+# 이 파일은 카펜터(Karpenter)가 가성비 높은 Graviton(ARM64) 스팟 인스턴스를
+# 동적으로 프로비저닝하는지 검증하기 위한 임시 부하 테스트용 YAML입니다.
+#
+# [설계 핵심] 
+# 1. 1코어, 1GB RAM을 요구하는 대형 파드를 생성하여 클러스터에 부하를 줍니다.
+# 2. nodeSelector와 tolerations를 통해 일반 노드가 아닌 Graviton App 노드로 유도합니다.
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: karpenter-load-test
+  namespace: default
+  labels:
+    app: load-test
+spec:
+  # [대기 상태] 처음에는 0개로 시작하여 우리가 원할 때 replicas를 늘려 부하를 폭발시킵니다.
+  replicas: 0 
+  
+  selector:
+    matchLabels:
+      app: load-test
+  template:
+    metadata:
+      labels:
+        app: load-test
+    spec:
+      # [핵심 1] 카펜터가 ARM64(Graviton) 기반 인스턴스를 찾도록 라벨을 강제합니다.
+      # 이 설정 덕분에 카펜터는 기존 x86 노드가 아닌 t4g.medium 같은 가성비 노드를 띄웁니다.
+      nodeSelector:
+        kubernetes.io/arch: arm64
+      # [핵심 2] 카펜터가 만든 노드에 설정된 Taint(접근 금지선)를 뚫기 위한 통행증입니다.
+      # 이 설정이 없으면 노드가 생겨도 파드가 배치되지 못하고 Pending 상태에 빠집니다.
+      tolerations:
+        - key: "app-workload"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+          
+      containers:
+        - name: pause
+          # [무거운 앱 구동 배제] 가볍고 투명한 pause 이미지를 사용하여 
+          # 애플리케이션 빌드/기동 시간을 제외하고 '순수 인프라 생성 속도'만 측정합니다.
+          image: registry.k8s.io/pause:3.9
+          
+          # [핵심 3] 파드당 1 CPU, 1GB RAM을 요구하여 클러스터 자원을 강하게 압박합니다.
+          # 이 requests 설정이 있어야 카펜터가 "자리가 부족하다"고 판단하고 즉시 새 노드를 만듭니다.
+          resources:
+            requests:
+              cpu: "1"
+              memory: "1Gi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
