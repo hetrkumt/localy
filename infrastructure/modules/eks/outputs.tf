@@ -9,8 +9,23 @@ output "cluster_endpoint" {
 }
 
 output "cluster_ca_certificate" {
-  description = "EKS 클러스터의 CA 인증서 데이터"
+  description = "EKS 클러스터의 CA 인증서 데이터 (base64)"
   value       = aws_eks_cluster.this.certificate_authority[0].data
+}
+
+output "cluster_certificate_authority_data" {
+  description = "EKS 클러스터 CA 인증서 (certificate_authority[0].data, base64)"
+  value       = aws_eks_cluster.this.certificate_authority[0].data
+}
+
+output "oidc_provider_arn" {
+  description = "EKS IRSA용 IAM OIDC provider ARN"
+  value       = aws_iam_openid_connect_provider.this.arn
+}
+
+output "cluster_oidc_issuer_url" {
+  description = "EKS 클러스터 OIDC issuer URL (IRSA trust policy 조건에 사용)"
+  value       = aws_eks_cluster.this.identity[0].oidc[0].issuer
 }
 
 output "karpenter_controller_role_arn" {

@@ -31,6 +31,10 @@ terraform {
       source  = "gavinbunney/kubectl"
       version = ">= 1.14.0"
     }
+    kubernetes = {
+      source  = "hashicorp/kubernetes"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -42,56 +46,7 @@ provider "aws" {
 }
 
 # --------------------------------------------------------
-# [3단계] EKS 클러스터 인증 정보 동적 획득 (Dynamic Exec)
-# --------------------------------------------------------
-# [설명] 15분짜리 정적 토큰 만료 장애를 방지하기 위해 실시간 인증 체계를 가동합니다.
-# 자식 프로세스(aws) 실행 시 환경 변수 유실로 인한 Unauthorized 401 에러를 방지하기 위해,
-# env 블록을 통해 'terraform-admin' 프로필을 강제적으로 지정(Explicit Injection)합니다.
-# [주의] 데이터 소스에 depends_on을 사용하면 plan 단계에서 인증 정보가 누락되어 
-# 'Kubernetes cluster unreachable' 에러가 납니다. 이미 클러스터가 구축되어 있으므로 
-# depends_on 체인을 완전히 끊고(Decoupling) 직접 조회합니다.
-# --------------------------------------------------------
-data "aws_eks_cluster" "cluster" {
-  name = "prod-eks"
-}
-
-data "aws_eks_cluster_auth" "cluster" {
-  name = "prod-eks"
-}
-
-provider "helm" {
-  kubernetes {
-    host                   = data.aws_eks_cluster.cluster.endpoint
-    cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority[0].data)
-    
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      args        = ["eks", "get-token", "--cluster-name", "prod-eks"]
-      command     = "aws"
-      env = {
-        AWS_PROFILE = "terraform-admin"
-      }
-    }
-  }
-}
-
-provider "kubectl" {
-  host                   = data.aws_eks_cluster.cluster.endpoint
-  cluster_ca_certificate = base64decode(data.aws_eks_cluster.cluster.certificate_authority[0].data)
-  
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    args        = ["eks", "get-token", "--cluster-name", "prod-eks"]
-    command     = "aws"
-    env = {
-      AWS_PROFILE = "terraform-admin"
-    }
-  }
-  load_config_file       = false
-}
-
-# --------------------------------------------------------
-# [4단계] 네트워크(VPC) 모듈 호출
+# [3단계] 네트워크(VPC) 모듈 호출
 # --------------------------------------------------------
 module "network" {
   source = "../../modules/network"
@@ -105,7 +60,7 @@ module "network" {
 }
 
 # --------------------------------------------------------
-# [5단계] EKS 클러스터 본체 및 시스템 노드 구축 모듈 호출
+# [4단계] EKS 클러스터 본체 및 시스템 노드 구축 모듈 호출
 # --------------------------------------------------------
 module "eks" {
   source       = "../../modules/eks"
@@ -116,7 +71,59 @@ module "eks" {
 }
 
 # --------------------------------------------------------
-# [6단계] Karpenter Controller (뇌) 이식 - Helm Release
+# [5단계] Kubernetes / Helm / kubectl Provider (module.eks Output 직접 참조)
+# --------------------------------------------------------
+# data "aws_eks_cluster"는 클러스터 생성 전 plan/apply 시 'couldn't find resource'를
+# 유발하므로 사용하지 않습니다. endpoint/CA는 module.eks output에서 가져옵니다.
+# 토큰은 exec(aws eks get-token)으로 갱신하여 정적 토큰 만료를 방지합니다.
+# --------------------------------------------------------
+provider "kubernetes" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    env = {
+      AWS_PROFILE = "terraform-admin"
+    }
+  }
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+      env = {
+        AWS_PROFILE = "terraform-admin"
+      }
+    }
+  }
+}
+
+provider "kubectl" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+  load_config_file       = false
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    env = {
+      AWS_PROFILE = "terraform-admin"
+    }
+  }
+}
+
+# --------------------------------------------------------
+# [6단계] Karpenter Controller (뇌) 이식 — Helm Release
 # --------------------------------------------------------
 resource "helm_release" "karpenter" {
   namespace        = "kube-system"
