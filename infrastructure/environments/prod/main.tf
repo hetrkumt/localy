@@ -35,6 +35,10 @@ terraform {
       source  = "hashicorp/kubernetes"
       version = "~> 3.0"
     }
+    http = {
+      source  = "hashicorp/http"
+      version = "~> 3.0"
+    }
   }
 }
 
@@ -60,7 +64,30 @@ module "network" {
 }
 
 # --------------------------------------------------------
-# [4단계] EKS 클러스터 본체 및 시스템 노드 구축 모듈 호출
+# [4단계] 로컬 Terraform 실행 환경 공인 IP (EKS API public_access_cidrs용)
+# --------------------------------------------------------
+data "http" "myip" {
+  url = "https://checkip.amazonaws.com"
+
+  lifecycle {
+    postcondition {
+      condition     = self.status_code == 200
+      error_message = "Failed to fetch Terraform runner public IP (status ${self.status_code})"
+    }
+  }
+}
+
+locals {
+  terraform_runner_public_cidr = "${chomp(data.http.myip.response_body)}/32"
+  eks_public_access_cidrs = distinct(compact(concat(
+    [local.terraform_runner_public_cidr],
+    var.admin_ip != "" ? [var.admin_ip] : [],
+    var.allow_global_cluster_api_access ? ["0.0.0.0/0"] : [],
+  )))
+}
+
+# --------------------------------------------------------
+# [5단계] EKS 클러스터 본체 및 시스템 노드 구축 모듈 호출
 # --------------------------------------------------------
 module "eks" {
   source       = "../../modules/eks"
@@ -68,10 +95,24 @@ module "eks" {
   vpc_id       = module.network.vpc_id
   admin_ip     = var.admin_ip
   subnet_ids   = module.network.private_subnets
+
+  cluster_endpoint_public_access = true
+  public_access_cidrs            = local.eks_public_access_cidrs
+
+  cluster_security_group_additional_rules = {
+    terraform_runner_https = {
+      type        = "ingress"
+      from_port   = 443
+      to_port     = 443
+      protocol    = "tcp"
+      cidr_blocks = local.eks_public_access_cidrs
+      description = "Allow HTTPS to cluster SG from Terraform runner / allowed CIDRs"
+    }
+  }
 }
 
 # --------------------------------------------------------
-# [5단계] Kubernetes / Helm / kubectl Provider (module.eks Output 직접 참조)
+# [6단계] Kubernetes / Helm / kubectl Provider (module.eks Output 직접 참조)
 # --------------------------------------------------------
 # data "aws_eks_cluster"는 클러스터 생성 전 plan/apply 시 'couldn't find resource'를
 # 유발하므로 사용하지 않습니다. endpoint/CA는 module.eks output에서 가져옵니다.
@@ -123,7 +164,7 @@ provider "kubectl" {
 }
 
 # --------------------------------------------------------
-# [6단계] Karpenter Controller (뇌) 이식 — Helm Release
+# [7단계] Karpenter Controller (뇌) 이식 — Helm Release
 # --------------------------------------------------------
 resource "helm_release" "karpenter" {
   namespace        = "kube-system"

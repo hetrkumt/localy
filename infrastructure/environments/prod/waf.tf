@@ -4,10 +4,10 @@
 resource "aws_wafv2_web_acl" "ingress_waf" {
   name        = "prod-ingress-waf"
   description = "WAF for Production ALB Ingress - Managed Rules"
-  scope       = "REGIONAL" 
+  scope       = "REGIONAL"
 
   default_action {
-    allow {} 
+    allow {}
   }
 
   visibility_config {
@@ -65,7 +65,7 @@ resource "aws_wafv2_web_acl" "ingress_waf" {
 # -------------------------------------------------------------------------
 resource "aws_s3_bucket" "waf_logs" {
   bucket        = "aws-waf-logs-localy-prod-audit"
-  force_destroy = true 
+  force_destroy = true
 
   tags = {
     Name        = "aws-waf-logs-localy-prod-audit"
@@ -85,7 +85,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "waf_logs_lifecycle" {
     filter {}
 
     expiration {
-      days = 14 
+      days = 14
     }
   }
 }
@@ -96,7 +96,7 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "waf_logs_encrypti
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256" 
+      sse_algorithm = "AES256"
     }
   }
 }

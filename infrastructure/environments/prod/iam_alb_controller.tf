@@ -14,9 +14,9 @@ resource "aws_iam_policy" "aws_lbc_iam_policy" {
   name        = "AWSLoadBalancerControllerIAMPolicy-prod"
   path        = "/"
   description = "IAM policy for AWS Load Balancer Controller in prod EKS"
-  
+
   # data.http를 통해 가져온 JSON 바디를 그대로 주입합니다.
-  policy      = data.http.aws_lbc_iam_policy.response_body
+  policy = data.http.aws_lbc_iam_policy.response_body
 }
 
 # -------------------------------------------------------------------------
@@ -30,7 +30,7 @@ data "aws_iam_policy_document" "aws_lbc_assume_role_policy" {
     # EKS 클러스터의 OIDC 공급자를 인증 주체(Federated)로 선언
     principals {
       type        = "Federated"
-      identifiers = [module.eks.oidc_provider_arn] 
+      identifiers = [module.eks.oidc_provider_arn]
     }
 
     # [핵심] 제로 트러스트 바인딩: 오직 지정된 네임스페이스와 SA만 허용
@@ -52,8 +52,8 @@ data "aws_iam_policy_document" "aws_lbc_assume_role_policy" {
 # 4. ALB 컨트롤러 전용 IAM Role 생성
 # -------------------------------------------------------------------------
 resource "aws_iam_role" "aws_lbc_iam_role" {
-  name               = "AWSLoadBalancerControllerIAMRole-prod"
-  
+  name = "AWSLoadBalancerControllerIAMRole-prod"
+
   # 위에서 정의한 깐깐한 OIDC 신뢰 관계 문서를 Role의 입구(Assume Role Policy)에 장착
   assume_role_policy = data.aws_iam_policy_document.aws_lbc_assume_role_policy.json
 }
@@ -75,7 +75,7 @@ resource "kubernetes_service_account_v1" "aws_lbc_sa" {
   metadata {
     name      = "aws-load-balancer-controller"
     namespace = "kube-system"
-    
+
     # [핵심] AWS IAM Role과 K8s Service Account를 물리적으로 엮어주는 차원 관문
     annotations = {
       "eks.amazonaws.com/role-arn" = aws_iam_role.aws_lbc_iam_role.arn
