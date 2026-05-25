@@ -1,20 +1,11 @@
 # -------------------------------------------------------------------------
 # ExternalDNS IRSA 구성 (1단계): AWS Route53 레코드 조작 권한 최소화
 # -------------------------------------------------------------------------
+# OIDC/클러스터 정보는 동일 state의 module.eks output을 사용합니다 (prod-eks).
+# data "aws_eks_cluster" 조회는 greenfield apply 시 'couldn't find resource'를 유발합니다.
+# -------------------------------------------------------------------------
 
-# 1. EKS 클러스터 정보를 동적으로 조회하여 OIDC Issuer URL을 확보합니다.
-#    하드코딩 금지, 클러스터 이름은 지시대로 prod-platform-eks를 사용합니다.
-data "aws_eks_cluster" "prod_platform_eks" {
-  name = "prod-platform-eks"
-}
-
-# 2. 클러스터의 OIDC 발급자를 직접 참조하여 IAM OIDC Provider를 조회합니다.
-#    이로써 IRSA의 신뢰 관계가 실제 클러스터의 OIDC 공급자와 연결됩니다.
-data "aws_iam_openid_connect_provider" "eks_oidc" {
-  url = data.aws_eks_cluster.prod_platform_eks.identity[0].oidc[0].issuer
-}
-
-# 3. ExternalDNS가 AWS Route53에 접근할 수 있는 최소 권한 Policy 정의
+# 1. ExternalDNS가 AWS Route53에 접근할 수 있는 최소 권한 Policy 정의
 resource "aws_iam_policy" "prod_externaldns_route53_policy" {
   name        = "prod-externaldns-route53-policy"
   path        = "/"
@@ -51,7 +42,7 @@ resource "aws_iam_policy" "prod_externaldns_route53_policy" {
   })
 }
 
-# 4. OIDC Trust Relationship 정의: 오직 kube-system 네임스페이스의 external-dns-sa만 Role을 Assume 가능
+# 2. OIDC Trust Relationship: 오직 kube-system/external-dns-sa만 Role Assume 가능
 data "aws_iam_policy_document" "prod_externaldns_assume_role_policy" {
   statement {
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -59,38 +50,41 @@ data "aws_iam_policy_document" "prod_externaldns_assume_role_policy" {
 
     principals {
       type        = "Federated"
-      identifiers = [data.aws_iam_openid_connect_provider.eks_oidc.arn]
+      identifiers = [module.eks.oidc_provider_arn]
     }
 
     condition {
       test     = "StringEquals"
-      variable = "${replace(data.aws_eks_cluster.prod_platform_eks.identity[0].oidc[0].issuer, "https://", "")}:sub"
+      variable = "${replace(module.eks.cluster_oidc_issuer_url, "https://", "")}:sub"
       values   = ["system:serviceaccount:kube-system:external-dns-sa"]
     }
 
     condition {
       test     = "StringEquals"
-      variable = "${replace(data.aws_eks_cluster.prod_platform_eks.identity[0].oidc[0].issuer, "https://", "")}:aud"
+      variable = "${replace(module.eks.cluster_oidc_issuer_url, "https://", "")}:aud"
       values   = ["sts.amazonaws.com"]
     }
   }
 }
 
-# 5. ExternalDNS IRSA 전용 IAM Role 생성
+# 3. ExternalDNS IRSA 전용 IAM Role 생성
 resource "aws_iam_role" "prod_externaldns_irsa_role" {
   name               = "prod-externaldns-irsa-role"
   assume_role_policy = data.aws_iam_policy_document.prod_externaldns_assume_role_policy.json
 }
 
-# 6. IAM Role에 최소 권한 Policy 결합
+# 4. IAM Role에 최소 권한 Policy 결합
 resource "aws_iam_role_policy_attachment" "prod_externaldns_policy_attach" {
   role       = aws_iam_role.prod_externaldns_irsa_role.name
   policy_arn = aws_iam_policy.prod_externaldns_route53_policy.arn
 }
 
-# 7. Kubernetes Service Account 생성 및 IAM Role 바인딩
+# 5. Kubernetes Service Account 생성 및 IAM Role 바인딩
 resource "kubernetes_service_account_v1" "external_dns_sa" {
-  depends_on = [aws_iam_role_policy_attachment.prod_externaldns_policy_attach]
+  depends_on = [
+    module.eks,
+    aws_iam_role_policy_attachment.prod_externaldns_policy_attach,
+  ]
 
   metadata {
     name      = "external-dns-sa"
