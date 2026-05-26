@@ -105,7 +105,7 @@ module "eks" {
       from_port   = 443
       to_port     = 443
       protocol    = "tcp"
-      cidr_blocks = local.eks_public_access_cidrs
+      cidr_blocks = tolist(setsubtract(toset(local.eks_public_access_cidrs), toset(var.admin_ip != "" ? [var.admin_ip] : [])))
       description = "Allow HTTPS to cluster SG from Terraform runner / allowed CIDRs"
     }
   }

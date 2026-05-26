@@ -47,3 +47,11 @@ output "karpenter_node_iam_role_name" {
   description = "The name of the IAM role for Karpenter nodes"
   value       = aws_iam_role.karpenter_node.name
 }
+
+output "ebs_csi_role_name" {
+  value = aws_iam_role.ebs_csi.name
+}
+
+output "ebs_csi_role_arn" {
+  value = aws_iam_role.ebs_csi.arn
+}
