@@ -15,7 +15,7 @@ terraform {
     bucket         = "feifo-prod-tf-state-backend"
     key            = "eks-gitops/prod/network.tfstate"
     region         = "ap-northeast-2"
-    dynamodb_table = "feifo-prod-tf-locks"
+    #dynamodb_table = "feifo-prod-tf-locks"
   }
 
   required_providers {
@@ -205,5 +205,10 @@ resource "helm_release" "karpenter" {
   set {
     name  = "nodeSelector.role"
     value = "system"
+  }
+
+  set {
+    name  = "serviceMonitor.enabled"
+    value = "true"
   }
 }

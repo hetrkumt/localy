@@ -36,4 +36,14 @@ resource "helm_release" "aws_load_balancer_controller" {
     name  = "vpcId"
     value = module.network.vpc_id
   }
+
+  set {
+    name  = "serviceMonitor.enabled"
+    value = "true"
+  }
+
+  set {
+    name  = "serviceMonitor.additionalLabels.release"
+    value = "kube-prometheus-stack"
+  }
 }

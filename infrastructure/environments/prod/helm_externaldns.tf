@@ -14,7 +14,8 @@ resource "helm_release" "external_dns" {
 
   # 1단계에서 만든 ServiceAccount가 완전히 준비된 이후에만 Helm Release 실행
   depends_on = [
-    kubernetes_service_account_v1.external_dns_sa
+    kubernetes_service_account_v1.external_dns_sa,
+    helm_release.aws_load_balancer_controller
   ]
 
   # IRSA ServiceAccount를 재사용하여 중복 생성과 권한 누수를 방지합니다.

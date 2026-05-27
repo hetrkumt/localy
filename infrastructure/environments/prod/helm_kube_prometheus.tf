@@ -40,12 +40,64 @@ resource "helm_release" "kube_prometheus_stack" {
       # -----------------------------------------------------------------------
       grafana = {
         adminPassword = random_password.grafana_admin.result
+
+        serviceAccount = {
+          create = true
+          annotations = {
+            "eks.amazonaws.com/role-arn" = module.eks.grafana_irsa_arn
+          }
+        }
+        additionalDataSources = [
+          {
+            name      = "Prometheus TF"
+            type      = "prometheus"
+            uid       = "Prometheus_TF"  
+            url       = "http://kube-prometheus-stack-prometheus.monitoring:9090"
+            access    = "proxy"
+          },
+          {
+            name      = "Prometheus LBC"
+            type      = "prometheus"
+            uid       = "Prometheus_LBC"  
+            url       = "http://kube-prometheus-stack-prometheus.monitoring:9090"
+            access    = "proxy"
+          },
+          {
+            name   = "CloudWatch"
+            type   = "cloudwatch"
+            uid    = "CloudWatch_TF"
+            access = "proxy"
+            jsonData = {
+              authType      = "default"          # EKS 워커 노드에 부여된 IAM 권한을 그대로 상속받음
+              defaultRegion = "ap-northeast-2"   # 서울 리전 타겟팅
+            }
+          },
+          { 
+            name   = "CloudWatch"
+            type   = "cloudwatch"
+            uid    = "CloudWatch_TF"
+            access = "proxy"
+            jsonData = {
+              authType      = "default"          # 파드에 걸린 IRSA 신분증을 자동 인식
+              defaultRegion = "ap-northeast-2"   # 서울 리전 타겟팅
+            }
+          }
+        ]
+        
+
+        sidecar = {
+          dashboards = {
+            enabled    = true
+            label      = "grafana_dashboard" 
+            labelValue = "1"                 
+          }
+        }
         
         ingress = {
           enabled          = true
           ingressClassName = "alb"
           annotations = {
-            # 1. 전임 엔지니어 원포인트 튜닝: 퍼블릭 망 노출
+            # 1. 퍼블릭 망 노출
             "alb.ingress.kubernetes.io/scheme" = "internet-facing"
             # 2. 공유 ALB 그룹 결속 (비용 최적화)
             "alb.ingress.kubernetes.io/group.name" = "prod-ingress-group"

@@ -40,6 +40,7 @@ resource "helm_release" "cert_manager" {
   # Phase 1의 신분증(SA) 생성이 쿠버네티스 API 서버에 100% 완료된 후에야
   # 로봇(Helm) 설치를 시작하도록 테라폼의 실행 순서(DAG)를 엄격히 직렬화합니다.
   depends_on = [
-    kubernetes_service_account_v1.cert_manager_sa
+    kubernetes_service_account_v1.cert_manager_sa,
+    helm_release.aws_load_balancer_controller
   ]
 }
