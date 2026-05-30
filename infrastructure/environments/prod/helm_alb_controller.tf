@@ -9,7 +9,8 @@ resource "helm_release" "aws_load_balancer_controller" {
   version    = "1.7.2"
 
   depends_on = [
-    kubernetes_service_account_v1.aws_lbc_sa
+    kubernetes_service_account_v1.aws_lbc_sa,
+    helm_release.kube_prometheus_stack
   ]
 
   set {

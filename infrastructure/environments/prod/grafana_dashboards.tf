@@ -3,7 +3,7 @@
 # Grafana Sidecar가 감지할 ConfigMap 명세서
 # =============================================================================
 
-resource "kubernetes_config_map" "grafana_dashboards" {
+resource "kubernetes_config_map_v1" "grafana_dashboards" {
   metadata {
     name      = "grafana-custom-dashboards"
     namespace = "monitoring"

@@ -179,7 +179,8 @@ resource "helm_release" "karpenter" {
   create_namespace = true
 
   depends_on = [
-    module.eks
+    module.eks,
+    helm_release.kube_prometheus_stack
   ]
 
   set {

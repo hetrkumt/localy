@@ -26,11 +26,10 @@ resource "helm_release" "kube_prometheus_stack" {
   wait             = true
   timeout          = 600
 
-  # [SRE 튜닝] 레이스 컨디션 방어:
-  # EBS CSI 드라이버와 AWS LBC가 완벽히 기동된 후에만 관제탑 배포를 시작하도록 족쇄를 채움
+  # [SRE 튜닝] EBS CSI가 기동된 후 관제탑(ServiceMonitor CRD)을 먼저 배포합니다.
+  # ALB/Karpenter는 관제탑 이후에 설치되므로 여기서 참조하지 않습니다 (순환 참조 방지).
   depends_on = [
     aws_eks_addon.ebs_csi,
-    helm_release.aws_load_balancer_controller,
   ]
 
   values = [

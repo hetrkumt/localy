@@ -28,14 +28,3 @@ resource "aws_eks_addon" "coredns" {
   depends_on                  = [aws_eks_node_group.this]
 }
 
-# 4. EBS CSI Driver (영구 스토리지 관리)
-# iam.tf에서 만든 Role ARN을 이 애드온에 주입(Injection)하여 IRSA를 완성합니다.
-resource "aws_eks_addon" "ebs_csi" {
-  cluster_name                = aws_eks_cluster.this.name
-  addon_name                  = "aws-ebs-csi-driver"
-  service_account_role_arn    = aws_iam_role.ebs_csi.arn
-  resolve_conflicts_on_create = "OVERWRITE"
-  resolve_conflicts_on_update = "OVERWRITE"
-  depends_on                  = [aws_eks_node_group.this]
-}
-

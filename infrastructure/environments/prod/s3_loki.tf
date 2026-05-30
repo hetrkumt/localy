@@ -113,8 +113,6 @@ data "aws_iam_policy_document" "loki_logs" {
       identifiers = ["*"]
     }
 
-    # 제어 플레인(버킷 설정)이 아닌 오직 데이터 플레인(로그 접근)만 차단 
-    # -> Terraform 배포에는 전혀 지장을 주지 않음
     actions = [
       "s3:GetObject",
       "s3:PutObject",
@@ -131,8 +129,6 @@ data "aws_iam_policy_document" "loki_logs" {
       "${aws_s3_bucket.loki_logs.arn}/*",
     ]
 
-    # [수정됨] Admin 예외(ArnNotEquals) 조항 완전 삭제
-    # 오직 승인된 VPC Endpoint를 통해서만 접근 가능 (해커가 토큰을 탈취해도 인터넷망 접근 불가)
     condition {
       test     = "StringNotEquals"
       variable = "aws:sourceVpce"
