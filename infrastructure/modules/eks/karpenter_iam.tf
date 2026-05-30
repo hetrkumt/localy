@@ -28,7 +28,7 @@ resource "aws_iam_role_policy_attachment" "karpenter_node_policies" {
 }
 
 resource "aws_iam_instance_profile" "karpenter_node" {
-  name = aws_iam_role.karpenter_node.name 
+  name = aws_iam_role.karpenter_node.name
   role = aws_iam_role.karpenter_node.name
 }
 
@@ -38,7 +38,7 @@ resource "aws_iam_instance_profile" "karpenter_node" {
 # ========================================================================
 resource "aws_eks_access_entry" "karpenter_node" {
   # [수정] var.cluster_name 대신 실제 클러스터 리소스의 name 속성을 참조합니다.
-  cluster_name  = aws_eks_cluster.this.name 
+  cluster_name  = aws_eks_cluster.this.name
   principal_arn = aws_iam_role.karpenter_node.arn
   type          = "EC2_LINUX"
 
@@ -105,9 +105,9 @@ resource "aws_iam_policy" "karpenter_controller" {
         Resource = "*"
       },
       {
-        Sid    = "AllowPassRole"
-        Effect = "Allow"
-        Action = "iam:PassRole"
+        Sid      = "AllowPassRole"
+        Effect   = "Allow"
+        Action   = "iam:PassRole"
         Resource = aws_iam_role.karpenter_node.arn
       },
       {

@@ -71,16 +71,6 @@ resource "helm_release" "kube_prometheus_stack" {
               authType      = "default"          # EKS 워커 노드에 부여된 IAM 권한을 그대로 상속받음
               defaultRegion = "ap-northeast-2"   # 서울 리전 타겟팅
             }
-          },
-          { 
-            name   = "CloudWatch"
-            type   = "cloudwatch"
-            uid    = "CloudWatch_TF"
-            access = "proxy"
-            jsonData = {
-              authType      = "default"          # 파드에 걸린 IRSA 신분증을 자동 인식
-              defaultRegion = "ap-northeast-2"   # 서울 리전 타겟팅
-            }
           }
         ]
         

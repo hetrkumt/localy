@@ -211,4 +211,9 @@ resource "helm_release" "karpenter" {
     name  = "serviceMonitor.enabled"
     value = "true"
   }
+
+  set {
+    name  = "serviceMonitor.additionalLabels.release"
+    value = "kube-prometheus-stack"
+  }
 }

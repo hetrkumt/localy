@@ -319,7 +319,7 @@
         "alertThreshold": true
       },
       "percentage": false,
-      "pluginVersion": "7.5.5",
+      "pluginVersion": "11.0.0",
       "pointradius": 2,
       "points": false,
       "renderer": "flot",
@@ -410,7 +410,7 @@
         "sort": 0,
         "value_type": "individual"
       },
-      "type": "graph",
+      "type": "timeseries",
       "xaxis": {
         "buckets": null,
         "mode": "time",
@@ -480,7 +480,7 @@
         "alertThreshold": false
       },
       "percentage": false,
-      "pluginVersion": "7.5.5",
+      "pluginVersion": "11.0.0",
       "pointradius": 2,
       "points": false,
       "renderer": "flot",
@@ -553,7 +553,7 @@
         "sort": 0,
         "value_type": "individual"
       },
-      "type": "graph",
+      "type": "timeseries",
       "xaxis": {
         "buckets": null,
         "mode": "time",
@@ -623,7 +623,7 @@
         "alertThreshold": false
       },
       "percentage": false,
-      "pluginVersion": "7.5.5",
+      "pluginVersion": "11.0.0",
       "pointradius": 2,
       "points": true,
       "renderer": "flot",
@@ -714,7 +714,7 @@
         "sort": 0,
         "value_type": "individual"
       },
-      "type": "graph",
+      "type": "timeseries",
       "xaxis": {
         "buckets": null,
         "mode": "time",
@@ -804,7 +804,7 @@
         "alertThreshold": false
       },
       "percentage": false,
-      "pluginVersion": "7.5.5",
+      "pluginVersion": "11.0.0",
       "pointradius": 2,
       "points": false,
       "renderer": "flot",
@@ -895,7 +895,7 @@
         "sort": 0,
         "value_type": "individual"
       },
-      "type": "graph",
+      "type": "timeseries",
       "xaxis": {
         "buckets": null,
         "mode": "time",
@@ -965,7 +965,7 @@
         "alertThreshold": true
       },
       "percentage": false,
-      "pluginVersion": "7.5.5",
+      "pluginVersion": "11.0.0",
       "pointradius": 2,
       "points": false,
       "renderer": "flot",
@@ -1038,7 +1038,7 @@
         "sort": 0,
         "value_type": "individual"
       },
-      "type": "graph",
+      "type": "timeseries",
       "xaxis": {
         "buckets": null,
         "mode": "time",
@@ -1110,7 +1110,7 @@
         "alertThreshold": true
       },
       "percentage": false,
-      "pluginVersion": "7.5.5",
+      "pluginVersion": "11.0.0",
       "pointradius": 2,
       "points": false,
       "renderer": "flot",
@@ -1147,7 +1147,7 @@
         "sort": 0,
         "value_type": "individual"
       },
-      "type": "graph",
+      "type": "timeseries",
       "xaxis": {
         "buckets": null,
         "mode": "time",
@@ -1219,7 +1219,7 @@
         "alertThreshold": true
       },
       "percentage": false,
-      "pluginVersion": "7.5.5",
+      "pluginVersion": "11.0.0",
       "pointradius": 2,
       "points": false,
       "renderer": "flot",
@@ -1229,7 +1229,7 @@
       "steppedLine": false,
       "targets": [
         {
-          "alias": "Processed Bytes",
+          "alias": "Target Response Time",
           "dimensions": {
             "LoadBalancer": "$loadbalancer"
           },
@@ -1256,7 +1256,7 @@
         "sort": 0,
         "value_type": "individual"
       },
-      "type": "graph",
+      "type": "timeseries",
       "xaxis": {
         "buckets": null,
         "mode": "time",
@@ -1300,11 +1300,6 @@
   "templating": {
     "list": [
       {
-        "current": {
-          "selected": true,
-          "text": "cloudwatch",
-          "value": "cloudwatch"
-        },
         "description": null,
         "error": null,
         "hide": 0,

@@ -6,7 +6,7 @@ resource "aws_wafv2_ip_set" "admin_ips" {
   description        = "Authorized IP addresses for Grafana dashboard access"
   scope              = "REGIONAL"
   ip_address_version = "IPV4"
-  addresses          = [var.admin_ip != "" ? var.admin_ip : "1.1.1.1/32"]
+  addresses          = [var.admin_ip]
 
   tags = {
     Environment = "prod"

@@ -42,3 +42,6 @@ crash.*
 # ==========================================
 .DS_Store
 Thumbs.db
+
+# Accidental git log / pager artifacts (e.g. "ion: v1")
+ion*

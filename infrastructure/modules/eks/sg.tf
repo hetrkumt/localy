@@ -12,8 +12,8 @@ resource "aws_security_group" "node" {
   vpc_id      = var.vpc_id
 
 
-  tags = { 
-    Name                     = "${var.cluster_name}-node-sg" 
+  tags = {
+    Name = "${var.cluster_name}-node-sg"
     # karpenter.sh/discovery 태그를 추가합니다.
     "karpenter.sh/discovery" = var.cluster_name # "prod-eks"로 매핑됨
   }
@@ -106,7 +106,7 @@ resource "aws_security_group_rule" "cluster_ingress_node" {
   from_port                = 443
   to_port                  = 443
   protocol                 = "tcp"
-  source_security_group_id = aws_security_group.node.id  # 노드들이
+  source_security_group_id = aws_security_group.node.id    # 노드들이
   security_group_id        = aws_security_group.cluster.id # 관리실로 들어옵니다
   description              = "Allow EKS nodes to communicate with Control Plane API"
 }

@@ -25,7 +25,7 @@ resource "aws_eks_addon" "coredns" {
   addon_name                  = "coredns"
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
-  depends_on                  = [aws_eks_node_group.this] 
+  depends_on                  = [aws_eks_node_group.this]
 }
 
 # 4. EBS CSI Driver (영구 스토리지 관리)
