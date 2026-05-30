@@ -1,0 +1,88 @@
+# =============================================================================
+# Loki Ingress Zero-Trust NetworkPolicy
+# Default Deny (implicit) + Whitelist: Fluent Bit (write) / Grafana (read)
+# =============================================================================
+# namespace: apply 시 -n observability 권장 (Loki Helm release NS)
+#           metadata.namespace 를 비워두면 kubectl apply -n <NS> 로 주입
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: loki-ingress-zero-trust
+  labels:
+    app.kubernetes.io/name: loki
+    app.kubernetes.io/component: network-policy
+    managed-by: terraform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: loki
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+    # Fluent Bit → Loki push (레거시 app / Helm app.kubernetes.io/name OR)
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - monitoring
+                  - observability
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - fluent-bit
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - monitoring
+                  - observability
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - fluent-bit
+      ports:
+        - protocol: TCP
+          port: 3100
+    # Grafana → Loki query (NS 불변 족쇄 + 레거시/Helm 라벨 OR)
+    - from:
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - monitoring
+                  - observability
+          podSelector:
+            matchExpressions:
+              - key: app.kubernetes.io/name
+                operator: In
+                values:
+                  - grafana
+        - namespaceSelector:
+            matchExpressions:
+              - key: kubernetes.io/metadata.name
+                operator: In
+                values:
+                  - monitoring
+                  - observability
+          podSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - grafana
+      ports:
+        - protocol: TCP
+          port: 3100

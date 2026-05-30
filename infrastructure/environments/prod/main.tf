@@ -103,16 +103,18 @@ module "eks" {
   cluster_endpoint_public_access = true
   public_access_cidrs            = local.eks_public_access_cidrs
 
-  cluster_security_group_additional_rules = {
-    terraform_runner_https = {
-      type        = "ingress"
-      from_port   = 443
-      to_port     = 443
-      protocol    = "tcp"
-      cidr_blocks = tolist(setsubtract(toset(local.eks_public_access_cidrs), toset(var.admin_ip != "" ? [var.admin_ip] : [])))
-      description = "Allow HTTPS to cluster SG from Terraform runner / allowed CIDRs"
-    }
-  }
+  cluster_security_group_additional_rules = merge(
+    length(setsubtract(toset(local.eks_public_access_cidrs), toset(var.admin_ip != "" ? [var.admin_ip] : []))) > 0 ? {
+      terraform_runner_https = {
+        type        = "ingress"
+        from_port   = 443
+        to_port     = 443
+        protocol    = "tcp"
+        cidr_blocks = tolist(setsubtract(toset(local.eks_public_access_cidrs), toset(var.admin_ip != "" ? [var.admin_ip] : [])))
+        description = "Allow HTTPS to cluster SG from Terraform runner / allowed CIDRs"
+      }
+    } : {}
+  )
 }
 
 # --------------------------------------------------------
@@ -129,7 +131,7 @@ provider "kubernetes" {
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", "ap-northeast-2"]
     env = {
       AWS_PROFILE = "terraform-admin"
     }
@@ -144,7 +146,7 @@ provider "helm" {
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+      args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", "ap-northeast-2"]
       env = {
         AWS_PROFILE = "terraform-admin"
       }
