@@ -64,8 +64,8 @@ resource "aws_eks_node_group" "this" {
   }
 
   scaling_config {
-    desired_size = 2 # Karpenter 및 애드온 가동 버퍼 확보를 위해 2대 HA 구성
-    max_size     = 3
+    desired_size = 3 # Karpenter 및 애드온 가동 버퍼 확보를 위해 2대 HA 구성
+    max_size     = 4 
     min_size     = 2
   }
 

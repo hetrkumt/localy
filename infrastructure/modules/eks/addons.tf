@@ -8,6 +8,15 @@ resource "aws_eks_addon" "vpc_cni" {
   addon_name                  = "vpc-cni"
   resolve_conflicts_on_create = "OVERWRITE"
   resolve_conflicts_on_update = "OVERWRITE"
+
+  # ⭐️ 여기에 Prefix Delegation 설정을 추가합니다!
+  configuration_values = jsonencode({
+    enableNetworkPolicy = "true"
+    env = {
+      ENABLE_PREFIX_DELEGATION = "true"
+      WARM_PREFIX_TARGET       = "1"
+    }
+  })
 }
 
 # 2. kube-proxy (서비스 라우팅 관리)

@@ -10,7 +10,7 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   depends_on = [
     kubernetes_service_account_v1.aws_lbc_sa,
-    helm_release.kube_prometheus_stack
+    aws_eks_addon.ebs_csi,
   ]
 
   set {
@@ -38,13 +38,9 @@ resource "helm_release" "aws_load_balancer_controller" {
     value = module.network.vpc_id
   }
 
+  # ServiceMonitor CRD는 kube-prometheus-stack이 ALB 이후에 배포되므로 비활성화합니다.
   set {
     name  = "serviceMonitor.enabled"
-    value = "true"
-  }
-
-  set {
-    name  = "serviceMonitor.additionalLabels.release"
-    value = "kube-prometheus-stack"
+    value = "false"
   }
 }

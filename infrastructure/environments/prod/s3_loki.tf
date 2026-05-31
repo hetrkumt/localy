@@ -4,11 +4,21 @@
 
 data "aws_caller_identity" "current" {}
 
+
+import {
+  to = aws_s3_bucket.loki_logs
+  id = "prod-eks-loki-logs-bucket"
+}
+
 resource "aws_s3_bucket" "loki_logs" {
   bucket = "${var.env_name}-eks-loki-logs-bucket"
 
+# 🚨 [임시 추가] 버킷 안에 로그 데이터가 남아 있어도 강제로 모조리 소각
+  force_destroy = true
+
   lifecycle {
-    prevent_destroy = true
+    # 🚨 [임시 수정] 테라폼의 파괴(Destroy) 방어막을 해제
+    prevent_destroy = false 
   }
 
   tags = {
@@ -134,6 +144,12 @@ data "aws_iam_policy_document" "loki_logs" {
       variable = "aws:sourceVpce"
       values   = [module.network.s3_vpc_endpoint_id]
     }
+    # 🚨 [임시 허용] 테라폼 실행자(Admin IP)는 차단에서 예외 처리!
+    condition {
+      test     = "NotIpAddress"
+      variable = "aws:SourceIp"
+      values   = [var.admin_ip]
+    }
   }
 }
 
@@ -141,3 +157,4 @@ resource "aws_s3_bucket_policy" "loki_logs" {
   bucket = aws_s3_bucket.loki_logs.id
   policy = data.aws_iam_policy_document.loki_logs.json
 }
+

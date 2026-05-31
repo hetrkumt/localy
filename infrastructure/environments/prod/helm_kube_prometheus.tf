@@ -23,14 +23,15 @@ resource "helm_release" "kube_prometheus_stack" {
   version          = "58.2.2" # 안정성이 검증된 최신 Stable 버전
   namespace        = "monitoring"
   create_namespace = true
-  wait             = true
+  wait = false
   timeout          = 600
 
-  # [SRE 튜닝] EBS CSI가 기동된 후 관제탑(ServiceMonitor CRD)을 먼저 배포합니다.
-  # ALB/Karpenter는 관제탑 이후에 설치되므로 여기서 참조하지 않습니다 (순환 참조 방지).
+  # [SRE 튜닝] EBS CSI 기동 후, ALB Controller Webhook이 준비된 뒤 관제탑(Grafana Ingress 등)을 배포합니다.
   depends_on = [
     aws_eks_addon.ebs_csi,
+    helm_release.aws_load_balancer_controller,
   ]
+
 
   values = [
     yamlencode({

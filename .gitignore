@@ -45,3 +45,9 @@ Thumbs.db
 
 # Accidental git log / pager artifacts (e.g. "ion: v1")
 ion*
+
+# ==========================================
+# 🛠️ 5. Local Scripts & Utilities
+# ==========================================
+# 로컬 스크립트 폴더 전체 무시
+local_scripts/

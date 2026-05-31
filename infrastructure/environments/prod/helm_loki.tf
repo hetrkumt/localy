@@ -37,6 +37,14 @@ resource "helm_release" "loki" {
     module.eks,
     aws_kms_key.loki_s3,
     aws_s3_bucket_server_side_encryption_configuration.loki_logs,
-    time_sleep.wait_for_iam_and_s3_propagation # 30초 대기 족쇄 결속
+    time_sleep.wait_for_iam_and_s3_propagation, # 30초 대기 족쇄 결속
+    helm_release.aws_load_balancer_controller
   ]
+}
+
+# ==========================================
+# Loki Network Policy 자동 배포 연결고리
+# ==========================================
+resource "kubectl_manifest" "loki_network_policy" {
+  yaml_body = file("${path.module}/loki-network-policy.yaml")
 }
