@@ -31,6 +31,7 @@ resource "helm_release" "loki" {
       loki_s3_bucket_name = aws_s3_bucket.loki_logs.id
       aws_region          = data.aws_region.current.name # 
     })
+    
   ]
 
   depends_on = [
@@ -40,6 +41,10 @@ resource "helm_release" "loki" {
     time_sleep.wait_for_iam_and_s3_propagation, # 30초 대기 족쇄 결속
     helm_release.aws_load_balancer_controller
   ]
+  set {
+    name  = "gateway.service.annotations.service\\.kubernetes\\.io/topology-mode"
+    value = "auto"  # 🚨 [FinOps 족쇄] Cross-AZ 네트워크 과금 원천 차단
+  }
 }
 
 # NetworkPolicy → k8s_network_policy.tf (kubernetes_network_policy_v1)

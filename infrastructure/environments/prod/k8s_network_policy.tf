@@ -175,21 +175,6 @@ resource "kubernetes_network_policy_v1" "fluent_bit_egress_zero_trust" {
       }
     }
 
-    # Kubernetes API (kubernetes filter 메타데이터 조회 — EKS private endpoint, VPC 내부)
-    egress {
-      to {
-        ip_block {
-          cidr = local.vpc_cidr
-        }
-      }
-
-      ports {
-        protocol = "TCP"
-        port     = "443"
-      }
-    }
-  }
-
   depends_on = [
     helm_release.loki,
     helm_release.fluent_bit,

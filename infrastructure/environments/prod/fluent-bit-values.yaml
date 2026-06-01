@@ -52,7 +52,8 @@ securityContext:
 extraVolumes:
   - name: flb-storage
     emptyDir:
-      sizeLimit: 2Gi
+      medium: Memory      # [FinOps] EBS gp3 I/O 낭비 완전 차단
+      sizeLimit: 100Mi    # [SRE] 파드 Memory Limit(256Mi) 대비 OOM 안전 마진
   - name: tmp
     emptyDir:
       sizeLimit: 64Mi
@@ -60,6 +61,32 @@ extraVolumes:
     hostPath:
       path: /var/log/journal
       type: DirectoryOrCreate
+      85
+extraVolumes:
+  - name: varlogpods
+    hostPath:
+      path: /var/log/pods # 🚨 전체 /var/log 대신 실제 파드 로그만 마운트
+  - name: varlogcontainers
+    hostPath:
+      path: /var/log/containers
+  - name: flb-offset-db
+    hostPath:
+      path: /var/log/journal/fluent-bit-db # 🚨 (SRE) Offset DB 저장을 위한 영구 경로
+      type: DirectoryOrCreate
+  - name: flb-storage
+    emptyDir:
+      medium: Memory
+      sizeLimit: 100Mi
+
+extraVolumeMounts:
+  - name: varlogpods
+    mountPath: /var/log/pods
+    readOnly: true
+  - name: varlogcontainers
+    mountPath: /var/log/containers
+    readOnly: true
+  - name: flb-offset-db
+    mountPath: /var/log/journal/fluent-bit-db
 
 extraVolumeMounts:
   - name: flb-storage
@@ -172,6 +199,12 @@ config:
         Mem_Buf_Limit     50MB
         storage.type      filesystem
 
+    [INPUT]
+        Name              tail
+        Path              /var/log/containers/*.log
+        Mem_Buf_Limit     50MB
+        DB                /var/log/journal/fluent-bit-db/flb_kube.db
+
   filters: |
     # [Phase 2] K8s 메타데이터 부착 (grep/PII 전에 실행)
     [FILTER]
@@ -181,6 +214,9 @@ config:
         Keep_Log            Off
         K8S-Logging.Parser  On
         K8S-Logging.Exclude On
+        Use_Kubelet         On
+        Kubelet_Port        10250
+        Kube_Meta_Cache_TTL 300s
 
     # [Phase 2 — FinOps] 무가치 로그 엣지 소각 (ELB/Kubelet 헬스체크)
     [FILTER]
@@ -207,6 +243,13 @@ config:
         Line_Format   json
         Compress      gzip
         Retry_Limit   5
+
+    [OUTPUT]
+        Name              loki
+        Match             *
+        Host              loki-gateway.observability.svc.cluster.local
+        Port              3100
+        Retry_Limit       False
 
   customParsers: |
     [PARSER]
