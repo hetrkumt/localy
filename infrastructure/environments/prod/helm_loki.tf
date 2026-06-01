@@ -42,9 +42,4 @@ resource "helm_release" "loki" {
   ]
 }
 
-# ==========================================
-# Loki Network Policy 자동 배포 연결고리
-# ==========================================
-resource "kubectl_manifest" "loki_network_policy" {
-  yaml_body = file("${path.module}/loki-network-policy.yaml")
-}
+# NetworkPolicy → k8s_network_policy.tf (kubernetes_network_policy_v1)

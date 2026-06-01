@@ -71,6 +71,13 @@ resource "helm_release" "kube_prometheus_stack" {
               authType      = "default"          # EKS 워커 노드에 부여된 IAM 권한을 그대로 상속받음
               defaultRegion = "ap-northeast-2"   # 서울 리전 타겟팅
             }
+          },
+          {
+            name   = "Loki"
+            type   = "loki"
+            uid    = "Loki_TF"
+            url    = "http://loki-gateway.observability.svc.cluster.local:3100"
+            access = "proxy"
           }
         ]
         

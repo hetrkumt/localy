@@ -1,0 +1,217 @@
+# =============================================================================
+# Fluent Bit Helm Values — Phase 1 (SRE/FinOps) + Phase 2 (DevSecOps)
+# Chart: fluent/fluent-bit (official)
+# Namespace: monitoring  ← helm_release에서 지정 (이 파일에는 미포함)
+# =============================================================================
+# Phase 1: emptyDir 2Gi, system-node-critical, Flush 15, gzip, Retry/백오프
+# Phase 2: grep 소각, securityContext 족쇄, payment NS PII Lua 마스킹
+# =============================================================================
+
+kind: DaemonSet
+
+# ---------------------------------------------------------------------------
+# [E2E] Prometheus ServiceMonitor — kube-prometheus-stack scrape 결속
+# ---------------------------------------------------------------------------
+serviceMonitor:
+  enabled: true
+  additionalLabels:
+    release: kube-prometheus-stack
+
+# ---------------------------------------------------------------------------
+# [SRE] 자원 경합 시 시스템 데몬급 생존권 확보
+# ---------------------------------------------------------------------------
+priorityClassName: system-node-critical
+
+# ---------------------------------------------------------------------------
+# [FinOps] Helm 차트 top-level flush (config.service와 동기화)
+# ---------------------------------------------------------------------------
+flush: 15
+
+# ---------------------------------------------------------------------------
+# [DevSecOps] NetworkPolicy(loki-ingress-zero-trust) 라벨 정합
+# ---------------------------------------------------------------------------
+labels:
+  app.kubernetes.io/name: fluent-bit
+
+# ---------------------------------------------------------------------------
+# [DevSecOps] 컨테이너 탈출 방어 — 루트 FS 쓰기 봉쇄
+# readOnlyRootFilesystem 호환을 위해 /tmp, /var/log/flb-storage emptyDir 필수
+# ---------------------------------------------------------------------------
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+  capabilities:
+    drop:
+      - ALL
+
+# ---------------------------------------------------------------------------
+# [SRE] emptyDir 물리 족쇄 + [DevSecOps] HostPath readOnly 강제
+# ---------------------------------------------------------------------------
+extraVolumes:
+  - name: flb-storage
+    emptyDir:
+      sizeLimit: 2Gi
+  - name: tmp
+    emptyDir:
+      sizeLimit: 64Mi
+  - name: journal
+    hostPath:
+      path: /var/log/journal
+      type: DirectoryOrCreate
+
+extraVolumeMounts:
+  - name: flb-storage
+    mountPath: /var/log/flb-storage
+  - name: tmp
+    mountPath: /tmp
+  - name: journal
+    mountPath: /var/log/journal
+    readOnly: true
+
+# HostPath 쓰기 차단 — /var/log 악용 Breakout 방어선
+daemonSetVolumeMounts:
+  - name: varlog
+    mountPath: /var/log
+    readOnly: true
+  - name: varlibdockercontainers
+    mountPath: /var/lib/docker/containers
+    readOnly: true
+  - name: etcmachineid
+    mountPath: /etc/machine-id
+    readOnly: true
+
+# ---------------------------------------------------------------------------
+# [SRE] OOM 방어
+# ---------------------------------------------------------------------------
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+
+tolerations:
+  - operator: Exists
+
+# ---------------------------------------------------------------------------
+# [DevSecOps] PII 마스킹 Lua — payment NS 전용 (ReDoS 방어: 클러스터 전역 미적용)
+# K8s tail tag 형식: kube.var.log.containers.{pod}_{namespace}_{container}-{id}.log
+# ---------------------------------------------------------------------------
+luaScripts:
+  pii_mask_payment.lua: |
+    function mask_payment_pii(tag, timestamp, record)
+        if type(record["log"]) ~= "string" then
+            return 0, timestamp, record
+        end
+
+        local log = record["log"]
+
+        -- 카드번호 (고정길이 앵커 — catastrophic backtracking 방지)
+        log = string.gsub(log, "%d%d%d%d%-%d%d%d%d%-%d%d%d%d%-%d%d%d", "[REDACTED_CARD]")
+        log = string.gsub(log, "%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d", "[REDACTED_CARD]")
+
+        -- 이메일 (단순 bounded 패턴)
+        log = string.gsub(log, "[%w%.%-]+@[%w%.%-]+%.%w+", "[REDACTED_EMAIL]")
+
+        -- 전화번호 KR (+82 / 010)
+        log = string.gsub(log, "(%+82%-?)[%d%-]+", "%1[REDACTED_PHONE]")
+        log = string.gsub(log, "010%-[%d%-]+", "[REDACTED_PHONE]")
+
+        record["log"] = log
+        return 1, timestamp, record
+    end
+
+# ---------------------------------------------------------------------------
+# Fluent Bit Classic Mode Pipeline
+# ---------------------------------------------------------------------------
+config:
+  service: |
+    [SERVICE]
+        Daemon                    Off
+        Flush                     15
+        Log_Level                 info
+        Parsers_File              /fluent-bit/etc/parsers.conf
+        Parsers_File              /fluent-bit/etc/conf/custom_parsers.conf
+        HTTP_Server               On
+        HTTP_Listen               0.0.0.0
+        HTTP_Port                 2020
+        Health_Check              On
+
+        # [SRE] 로컬 디스크 버퍼 — emptyDir(2Gi) mount 경로와 1:1 결속
+        storage.path              /var/log/flb-storage/
+        storage.sync              normal
+        storage.checksum          off
+        storage.max_chunks_up     128
+        storage.backlog.mem_limit 50M
+
+        # [FinOps/SRE] 관제탑 장애 시 Self-DDOS 방어 — 지수 백오프 제동
+        scheduler.base            5
+        scheduler.cap             300
+
+  inputs: |
+    # [SRE] 애플리케이션(컨테이너) 로그 — Mem_Buf_Limit 독립 족쇄
+    [INPUT]
+        Name              tail
+        Path              /var/log/containers/*.log
+        multiline.parser  docker, cri
+        Tag               kube.*
+        Mem_Buf_Limit     50MB
+        Skip_Long_Lines   On
+        Refresh_Interval  10
+        storage.type      filesystem
+
+    # [SRE] Kubelet Systemd Journal — Mem_Buf_Limit 독립 족쇄 (SPOF 차단)
+    [INPUT]
+        Name              systemd
+        Tag               host.*
+        Systemd_Filter    _SYSTEMD_UNIT=kubelet.service
+        Read_From_Tail    On
+        Mem_Buf_Limit     50MB
+        storage.type      filesystem
+
+  filters: |
+    # [Phase 2] K8s 메타데이터 부착 (grep/PII 전에 실행)
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Merge_Log           On
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+
+    # [Phase 2 — FinOps] 무가치 로그 엣지 소각 (ELB/Kubelet 헬스체크)
+    [FILTER]
+        Name      grep
+        Match     kube.*
+        Exclude   log .*(ELB-HealthChecker|kube-probe).*
+
+    # [Phase 2 — DevSecOps] PII 마스킹 — payment NS만 타겟 (ReDoS 방어)
+    # Tag 예: kube.var.log.containers.checkout_payment_api-abc123.log
+    [FILTER]
+        Name    lua
+        Match   kube.*_payment_*
+        script  /fluent-bit/scripts/pii_mask_payment.lua
+        call    mask_payment_pii
+
+  outputs: |
+    # [FinOps] Loki 전송 — gzip 압축 + Retry_Limit (Cross-AZ 트래픽·API 요격)
+    [OUTPUT]
+        Name          loki
+        Match         *
+        Host          loki-gateway.observability.svc.cluster.local
+        Port          3100
+        Labels        {job="fluent-bit", namespace="$kubernetes['namespace_name']", pod="$kubernetes['pod_name']", container="$kubernetes['container_name']"}
+        Line_Format   json
+        Compress      gzip
+        Retry_Limit   5
+
+  customParsers: |
+    [PARSER]
+        Name        docker_no_time
+        Format      json
+        Time_Keep   Off
+        Time_Key    time
+        Time_Format %Y-%m-%dT%H:%M:%S.%L
