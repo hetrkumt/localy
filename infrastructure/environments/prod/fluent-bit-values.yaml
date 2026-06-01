@@ -46,6 +46,23 @@ securityContext:
     drop:
       - ALL
 
+initContainers:
+  - name: fix-db-permissions
+    image: busybox:1.36.1-uclibc  # latest 대신 명시적 태그 사용
+    command: ["sh", "-c", "chown -R 1000:1000 /fluent-bit/log"]
+    securityContext:
+      runAsUser: 0
+      allowPrivilegeEscalation: false
+      readOnlyRootFilesystem: true  # initContainer도 루트 파일시스템 잠금
+      capabilities:
+        drop:
+          - ALL
+        add:
+          - CHOWN  # 오직 CHOWN 권한만 예외적으로 허용 (핵심!)
+    volumeMounts:
+      - name: flb-offset-db
+        mountPath: /fluent-bit/log
+
 # ---------------------------------------------------------------------------
 # [SRE] emptyDir 물리 족쇄 + [DevSecOps] HostPath readOnly 강제
 # ---------------------------------------------------------------------------
@@ -56,13 +73,12 @@ extraVolumes:
       sizeLimit: 100Mi    # [SRE] 파드 Memory Limit(256Mi) 대비 OOM 안전 마진
   - name: tmp
     emptyDir:
+      medium: Memory
       sizeLimit: 64Mi
   - name: journal
     hostPath:
       path: /var/log/journal
       type: DirectoryOrCreate
-      85
-extraVolumes:
   - name: varlogpods
     hostPath:
       path: /var/log/pods # 🚨 전체 /var/log 대신 실제 파드 로그만 마운트
@@ -71,14 +87,17 @@ extraVolumes:
       path: /var/log/containers
   - name: flb-offset-db
     hostPath:
-      path: /var/log/journal/fluent-bit-db # 🚨 (SRE) Offset DB 저장을 위한 영구 경로
+      path: /var/log/fluent-bit-db # 🚨 (SRE) Offset DB 저장을 위한 영구 경로
       type: DirectoryOrCreate
-  - name: flb-storage
-    emptyDir:
-      medium: Memory
-      sizeLimit: 100Mi
 
 extraVolumeMounts:
+  - name: flb-storage
+    mountPath: /fluent-bit/flb-storage
+  - name: tmp
+    mountPath: /tmp
+  - name: journal
+    mountPath: /var/log/journal
+    readOnly: true
   - name: varlogpods
     mountPath: /var/log/pods
     readOnly: true
@@ -86,16 +105,7 @@ extraVolumeMounts:
     mountPath: /var/log/containers
     readOnly: true
   - name: flb-offset-db
-    mountPath: /var/log/journal/fluent-bit-db
-
-extraVolumeMounts:
-  - name: flb-storage
-    mountPath: /var/log/flb-storage
-  - name: tmp
-    mountPath: /tmp
-  - name: journal
-    mountPath: /var/log/journal
-    readOnly: true
+    mountPath: /fluent-bit/log
 
 # HostPath 쓰기 차단 — /var/log 악용 Breakout 방어선
 daemonSetVolumeMounts:
@@ -168,7 +178,7 @@ config:
         Health_Check              On
 
         # [SRE] 로컬 디스크 버퍼 — emptyDir(2Gi) mount 경로와 1:1 결속
-        storage.path              /var/log/flb-storage/
+        storage.path              /fluent-bit/flb-storage/
         storage.sync              normal
         storage.checksum          off
         storage.max_chunks_up     128
@@ -189,6 +199,7 @@ config:
         Skip_Long_Lines   On
         Refresh_Interval  10
         storage.type      filesystem
+        DB                /fluent-bit/log/flb_kube.db
 
     # [SRE] Kubelet Systemd Journal — Mem_Buf_Limit 독립 족쇄 (SPOF 차단)
     [INPUT]
@@ -199,14 +210,15 @@ config:
         Mem_Buf_Limit     50MB
         storage.type      filesystem
 
-    [INPUT]
-        Name              tail
-        Path              /var/log/containers/*.log
-        Mem_Buf_Limit     50MB
-        DB                /var/log/journal/fluent-bit-db/flb_kube.db
 
   filters: |
-    # [Phase 2] K8s 메타데이터 부착 (grep/PII 전에 실행)
+    # 1순위: [Phase 2 — FinOps] 무가치 로그 엣지 소각 (먼저 쳐내서 Kubelet 부하 감소)
+    [FILTER]
+        Name      grep
+        Match     kube.*
+        Exclude   log .*(ELB-HealthChecker|kube-probe).*
+
+    # 2순위: [Phase 2] 살아남은 알짜배기 로그에만 K8s 메타데이터 부착
     [FILTER]
         Name                kubernetes
         Match               kube.*
@@ -216,21 +228,15 @@ config:
         K8S-Logging.Exclude On
         Use_Kubelet         On
         Kubelet_Port        10250
-        Kube_Meta_Cache_TTL 300s
+        Kube_Meta_Cache_TTL 60s    # 🚨 [권장] 신선도 유지를 위해 300s -> 60s 단축
 
-    # [Phase 2 — FinOps] 무가치 로그 엣지 소각 (ELB/Kubelet 헬스체크)
-    [FILTER]
-        Name      grep
-        Match     kube.*
-        Exclude   log .*(ELB-HealthChecker|kube-probe).*
-
-    # [Phase 2 — DevSecOps] PII 마스킹 — payment NS만 타겟 (ReDoS 방어)
-    # Tag 예: kube.var.log.containers.checkout_payment_api-abc123.log
+    # 3순위: [Phase 2 — DevSecOps] PII 마스킹
     [FILTER]
         Name    lua
         Match   kube.*_payment_*
         script  /fluent-bit/scripts/pii_mask_payment.lua
         call    mask_payment_pii
+
 
   outputs: |
     # [FinOps] Loki 전송 — gzip 압축 + Retry_Limit (Cross-AZ 트래픽·API 요격)
@@ -242,14 +248,7 @@ config:
         Labels        {job="fluent-bit", namespace="$kubernetes['namespace_name']", pod="$kubernetes['pod_name']", container="$kubernetes['container_name']"}
         Line_Format   json
         Compress      gzip
-        Retry_Limit   5
-
-    [OUTPUT]
-        Name              loki
-        Match             *
-        Host              loki-gateway.observability.svc.cluster.local
-        Port              3100
-        Retry_Limit       False
+        Retry_Limit   False
 
   customParsers: |
     [PARSER]

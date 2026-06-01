@@ -24,6 +24,8 @@ data "aws_iam_policy_document" "loki_s3" {
       "s3:PutObject",
       "s3:GetObject",
       "s3:DeleteObject",
+      "s3:ListMultipartUploadParts",  
+      "s3:AbortMultipartUpload"    
     ]
     resources = [
       "${aws_s3_bucket.loki_logs.arn}/*",
@@ -35,7 +37,8 @@ data "aws_iam_policy_document" "loki_s3" {
     effect = "Allow"
     actions = [
       "kms:Decrypt",
-      "kms:GenerateDataKey*"
+      "kms:GenerateDataKey*",
+      "kms:DescribeKey"
     ]
     resources = [
       aws_kms_key.loki_s3.arn

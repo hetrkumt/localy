@@ -174,7 +174,7 @@ resource "kubernetes_network_policy_v1" "fluent_bit_egress_zero_trust" {
         port     = "3100"
       }
     }
-
+  }
   depends_on = [
     helm_release.loki,
     helm_release.fluent_bit,
