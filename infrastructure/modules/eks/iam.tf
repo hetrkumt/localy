@@ -108,3 +108,32 @@ resource "aws_iam_role_policy_attachment" "ebs_csi_policy" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
   role       = aws_iam_role.ebs_csi.name
 }
+
+# ==========================================
+# 5. Grafana IRSA (CloudWatch datasource용)
+# ==========================================
+resource "aws_iam_role" "grafana" {
+  name = "${var.cluster_name}-grafana-role"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Action = "sts:AssumeRoleWithWebIdentity"
+      Effect = "Allow"
+      Principal = {
+        Federated = aws_iam_openid_connect_provider.this.arn
+      }
+      Condition = {
+        StringEquals = {
+          "${replace(aws_iam_openid_connect_provider.this.url, "https://", "")}:sub" = "system:serviceaccount:monitoring:kube-prometheus-stack-grafana"
+          "${replace(aws_iam_openid_connect_provider.this.url, "https://", "")}:aud" = "sts.amazonaws.com"
+        }
+      }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "grafana_cloudwatch_readonly" {
+  policy_arn = "arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess"
+  role       = aws_iam_role.grafana.name
+}

@@ -55,3 +55,8 @@ output "ebs_csi_role_name" {
 output "ebs_csi_role_arn" {
   value = aws_iam_role.ebs_csi.arn
 }
+
+output "grafana_irsa_arn" {
+  description = "Grafana 파드용 IRSA Role ARN (CloudWatch datasource)"
+  value       = aws_iam_role.grafana.arn
+}

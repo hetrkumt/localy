@@ -1,0 +1,88 @@
+# =============================================================================
+# Grafana Loki Helm Values — Part 2 + 3 + 4 (SRE / FinOps / Schema / Compactor)
+# Chart: grafana/loki (official)
+# Namespace: observability  ← helm_release에서 지정 (이 파일에는 미포함)
+# =============================================================================
+# Part 2: SimpleScalable, Stateless (no PVC), IRSA ServiceAccount
+# Part 3: S3 (VPC Endpoint 경유), Ingester chunk FinOps, RF=3 + flush 골든타임
+# [미포함] NetworkPolicy — 후속 파트
+# =============================================================================
+
+deploymentMode: SimpleScalable
+
+singleBinary:
+  replicas: 0
+
+# ---------------------------------------------------------------------------
+# IRSA — Part 1 iam_loki.tf Role ARN 결속
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  name: loki
+  annotations:
+    eks.amazonaws.com/role-arn: "${loki_irsa_role_arn}"
+
+# ---------------------------------------------------------------------------
+# Part 2 + Part 3 (SRE): Write — RF=3, flush 골든타임, 무상태
+# ---------------------------------------------------------------------------
+write:
+  replicas: 3
+  terminationGracePeriodSeconds: 300
+  persistence:
+    volumeClaimsEnabled: false
+
+read:
+  legacyReadTarget: false
+
+backend:
+  persistence:
+    volumeClaimsEnabled: true
+    size: 20Gi
+    storageClass: gp3
+
+# ---------------------------------------------------------------------------
+# Gateway (NGINX): CoreDNS IP 직접 지정 — FQDN resolver 부팅 크래시 원천 봉쇄
+# ---------------------------------------------------------------------------
+gateway:
+  replicas: 3
+  nginxConfig:
+    resolver: 172.20.0.10 valid=30s
+
+# ---------------------------------------------------------------------------
+# Part 3 + 4: Loki core config
+# ---------------------------------------------------------------------------
+loki:
+  schemaConfig:
+    configs:
+      - from: "2024-04-01"
+        store: tsdb
+        object_store: s3
+        schema: v13
+        index:
+          prefix: index_
+          period: 24h
+
+  storage:
+    type: s3
+    bucketNames:
+      chunks: ${loki_s3_bucket_name}
+    s3:
+      region: ${aws_region}
+      s3ForcePathStyle: false
+      insecure: false
+
+  ingester:
+    lifecycler:
+      ring:
+        replication_factor: 3
+    chunk_target_size: 5242880
+    max_chunk_age: 2h
+    chunk_idle_period: 1h
+
+  compactor:
+    working_directory: /var/loki/compactor
+    retention_enabled: true
+    delete_request_store: s3
+
+  limits_config:
+    retention_period: 30d

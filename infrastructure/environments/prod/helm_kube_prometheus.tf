@@ -26,12 +26,12 @@ resource "helm_release" "kube_prometheus_stack" {
   wait             = true
   timeout          = 600
 
-  # [SRE 튜닝] 레이스 컨디션 방어:
-  # EBS CSI 드라이버와 AWS LBC가 완벽히 기동된 후에만 관제탑 배포를 시작하도록 족쇄를 채움
+  # [SRE 튜닝] EBS CSI 기동 후, ALB Controller Webhook이 준비된 뒤 관제탑(Grafana Ingress 등)을 배포합니다.
   depends_on = [
     aws_eks_addon.ebs_csi,
     helm_release.aws_load_balancer_controller,
   ]
+
 
   values = [
     yamlencode({
@@ -71,6 +71,13 @@ resource "helm_release" "kube_prometheus_stack" {
               authType      = "default"          # EKS 워커 노드에 부여된 IAM 권한을 그대로 상속받음
               defaultRegion = "ap-northeast-2"   # 서울 리전 타겟팅
             }
+          },
+          {
+            name   = "Loki"
+            type   = "loki"
+            uid    = "Loki_TF"
+            url    = "http://loki-gateway.observability.svc.cluster.local:3100"
+            access = "proxy"
           }
         ]
         

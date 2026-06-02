@@ -33,7 +33,7 @@ resource "aws_eks_addon" "ebs_csi" {
   }
 }
 
-resource "kubernetes_storage_class" "gp3" {
+resource "kubernetes_storage_class_v1" "gp3" {
   metadata {
     name = "gp3"
   }
