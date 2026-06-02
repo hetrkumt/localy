@@ -102,9 +102,25 @@ extraObjects:
                   description: "Possible query storm, ingest failure, or upstream dependency issue."
 
 # ---------------------------------------------------------------------------
-# Part 3 + 4: Loki core config
+# [SRE] Ruler 물리 분리 — read/write 심장과 격리
+# ---------------------------------------------------------------------------
+ruler:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# ---------------------------------------------------------------------------
+# Part 3 + 4 + Sprint 5: Loki core config (OOM 방어 / Anti-spoof / VIP Overrides)
 # ---------------------------------------------------------------------------
 loki:
+  auth_enabled: true
+
   schemaConfig:
     configs:
       - from: "2024-04-01"
@@ -139,7 +155,17 @@ loki:
     delete_request_store: s3
 
   limits_config:
+    # [FinOps/SRE] S3 Expiration(90d)과 단 1초의 오차도 없는 완벽한 동기화
     retention_period: 90d
+    # [SRE] 30일 쿼리를 24h 단위로 강제 분할 (Query Frontend 샤딩)
+    split_queries_by_interval: 24h
+    # [DevSecOps] 미래 시간 스푸핑 차단
+    creation_grace_period: 10m
+    # [SRE] 일반 테넌트 조회 상한 7일
+    max_query_length: 168h
+    query_timeout: 300s
+    max_entries_limit_per_query: 5000
+    max_query_parallelism: 1
 
   rulerConfig:
     enable_alertmanager_v2: true

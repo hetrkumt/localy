@@ -195,6 +195,8 @@ config:
         Name              tail
         Path              /var/log/containers/*.log
         multiline.parser  docker, cri
+        multiline.flush_ms 2000
+        Buffer_Max_Size   5M
         Tag               kube.*
         Mem_Buf_Limit     50MB
         Skip_Long_Lines   On
@@ -236,8 +238,30 @@ config:
         K8S-Logging.Exclude On
         Use_Kubelet         On
         Kubelet_Port        10250
-        Kube_Meta_Cache_TTL 60s    # 🚨 [권장] 신선도 유지를 위해 300s -> 60s 단축
+        Kube_Meta_Cache_TTL 300s
 
+    # 4순위: [Yes, And] 시스템 핵심 네임스페이스 로그 보존 + 승인 라벨 통과
+    [FILTER]
+        Name      grep
+        Match     kube.*
+        Logical_Op OR
+        Regex     $kubernetes['namespace_name'] ^(kube-system|karpenter)$
+        Regex     $kubernetes['labels']['finops.logging/include'] true
+
+    # 5순위: [FinOps Default Deny] 명시 승인 라벨만 통과
+    [FILTER]
+        Name      grep
+        Match     kube.*
+        Regex     $kubernetes['labels']['finops.logging/include'] true
+    # 4순위: [FinOps Default Deny & SRE Bypass] 단일 결속
+    [FILTER]
+        Name      grep
+        Match     kube.*
+        Logical_Op OR
+        # 🛡️ SRE 가시성 사수: 핵심 시스템 네임스페이스는 무조건 통과 (Bypass)
+        Regex     $kubernetes['namespace_name'] ^(kube-system|karpenter)$
+        # 💰 FinOps 통제: 일반 비즈니스 파드는 승인 라벨이 있어야만 통과 (Default Deny)
+        Regex     $kubernetes['labels']['finops.logging/include'] true
 
 
 
@@ -248,6 +272,7 @@ config:
         Match         *
         Host          loki-gateway.observability.svc.cluster.local
         Port          3100
+        tenant_id     default
         Labels        {job="fluent-bit", namespace="$kubernetes['namespace_name']", pod="$kubernetes['pod_name']", container="$kubernetes['container_name']"}
         Line_Format   json
         Compress      gzip
