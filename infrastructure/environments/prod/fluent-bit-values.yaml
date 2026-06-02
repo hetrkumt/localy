@@ -69,11 +69,9 @@ initContainers:
 extraVolumes:
   - name: flb-storage
     emptyDir:
-      medium: Memory      # [FinOps] EBS gp3 I/O 낭비 완전 차단
-      sizeLimit: 100Mi    # [SRE] 파드 Memory Limit(256Mi) 대비 OOM 안전 마진
+      sizeLimit: 2Gi      # [SRE] 노드 Ephemeral Disk 백프레셔 (RAM 디스크 제거)
   - name: tmp
     emptyDir:
-      medium: Memory
       sizeLimit: 64Mi
   - name: journal
     hostPath:
@@ -120,15 +118,18 @@ daemonSetVolumeMounts:
     readOnly: true
 
 # ---------------------------------------------------------------------------
-# [SRE] OOM 방어
+# [SRE] OOM + DiskPressure 방어 — 파드 단위 ephemeral 상한 (노드 팀킬 선제 격리)
+# emptyDir flb-storage sizeLimit(2Gi)와 limits 정합
 # ---------------------------------------------------------------------------
 resources:
   requests:
-    cpu: 100m
-    memory: 128Mi
+    cpu: 15m
+    memory: 64Mi
+    ephemeral-storage: 512Mi
   limits:
     cpu: 500m
     memory: 512Mi
+    ephemeral-storage: 2Gi
 
 tolerations:
   - operator: Exists
@@ -148,7 +149,7 @@ luaScripts:
 
         -- 카드번호 (고정길이 앵커 — catastrophic backtracking 방지)
         log = string.gsub(log, "%d%d%d%d%-%d%d%d%d%-%d%d%d%d%-%d%d%d%d", "[REDACTED_CARD]")
-+       log = string.gsub(log, "%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d", "[REDACTED_CARD]")
+        log = string.gsub(log, "%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d", "[REDACTED_CARD]")
         
         -- 이메일 (단순 bounded 패턴)
         log = string.gsub(log, "[%w%.%-]+@[%w%.%-]+%.%w+", "[REDACTED_EMAIL]")

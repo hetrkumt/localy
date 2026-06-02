@@ -1,0 +1,47 @@
+# =============================================================================
+# Kyverno ClusterPolicy — Loki IRSA 신분증 보호 (serviceAccountName: loki)
+# [3차 워게임] failurePolicy Fail + 3s 타임아웃 — observability NS 한정 (폭발 반경 제어)
+# 전제: 클러스터에 Kyverno Admission Controller 설치 필요
+# 적용: kubectl apply -f kyverno-policy.yaml
+#       또는 prod 환경 kubectl_manifest / helm_kyverno.tf 연동
+# =============================================================================
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: protect-loki-irsa-identity
+  annotations:
+    policies.kyverno.io/title: Protect Loki IRSA Identity
+    policies.kyverno.io/category: DevSecOps
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 3
+  background: true
+  rules:
+    - name: deny-non-official-loki-images
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - observability
+              operations:
+                - CREATE
+                - UPDATE
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.serviceAccountName || '' }}"
+            operator: Equals
+            value: loki
+      validate:
+        message: >-
+          Pods with serviceAccountName 'loki' must only use authorized Grafana Loki
+          or Loki chart gateway (nginx) images. IRSA identity hijacking is denied.
+        pattern:
+          spec:
+            containers:
+              - image: "grafana/loki:* | docker.io/grafana/loki:* | nginx:* | nginxinc/nginx-unprivileged:*"
+            =(initContainers):
+              - image: "grafana/loki:* | docker.io/grafana/loki:* | nginx:* | nginxinc/nginx-unprivileged:*"

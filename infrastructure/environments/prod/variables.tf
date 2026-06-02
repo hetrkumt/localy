@@ -18,3 +18,9 @@ variable "allow_global_cluster_api_access" {
   type        = bool
   default     = false
 }
+
+variable "s3_bucket_policy_bypass_principal_arns" {
+  description = "Loki S3 zero-trust Deny 예외 IAM principal ARN (CI/CD·Admin Role 등). apply 주체는 aws_iam_session_context로 자동 병합."
+  type        = list(string)
+  default     = []
+}

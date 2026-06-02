@@ -2,9 +2,9 @@
 # Loki S3 — Customer Managed Key (CMK) for SSE-KMS & Crypto-shredding
 # ========================================================================
 
-data "aws_caller_identity" "loki_kms" {}
-
 data "aws_region" "current" {}
+
+data "aws_caller_identity" "loki_kms" {}
 
 resource "aws_kms_key" "loki_s3" {
   description             = "Loki S3 Logs Encryption Key (Supports Crypto-shredding)"

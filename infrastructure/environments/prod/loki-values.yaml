@@ -41,12 +41,12 @@ backend:
     storageClass: gp3
 
 # ---------------------------------------------------------------------------
-# Gateway (NGINX): CoreDNS IP 직접 지정 — FQDN resolver 부팅 크래시 원천 봉쇄
+# Gateway (NGINX): 클러스터 CoreDNS FQDN — 하드코딩 Service IP 제거
 # ---------------------------------------------------------------------------
 gateway:
   replicas: 3
   nginxConfig:
-    resolver: 172.20.0.10 valid=30s
+    resolver: kube-dns.kube-system.svc.cluster.local valid=30s
 
 # ---------------------------------------------------------------------------
 # [SRE] Ruler 분리 + Sidecar(ConfigMap 룰 주입)
@@ -139,7 +139,7 @@ loki:
     delete_request_store: s3
 
   limits_config:
-    retention_period: 30d
+    retention_period: 90d
 
   rulerConfig:
     enable_alertmanager_v2: true

@@ -16,7 +16,6 @@ resource "kubectl_manifest" "karpenter_node_class" {
             
       # 3. 보안 그룹 동적 탐색
       securityGroupSelectorTerms:
-        - tags:
           karpenter.sh/discovery: "${module.eks.cluster_name}"
           kubernetes.io/cluster/${module.eks.cluster_name}: "owned"
             
