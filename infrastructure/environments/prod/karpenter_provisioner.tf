@@ -16,8 +16,9 @@ resource "kubectl_manifest" "karpenter_node_class" {
             
       # 3. 보안 그룹 동적 탐색
       securityGroupSelectorTerms:
-          karpenter.sh/discovery: "${module.eks.cluster_name}"
-          kubernetes.io/cluster/${module.eks.cluster_name}: "owned"
+        - tags:
+            karpenter.sh/discovery: "${module.eks.cluster_name}"
+            kubernetes.io/cluster/${module.eks.cluster_name}: "owned"
             
       # 4. 새로 생성될 EC2 인스턴스에 기본적으로 붙일 태그
       tags:

@@ -69,7 +69,6 @@ resource "aws_s3_bucket_lifecycle_configuration" "loki_logs" {
     filter {}
 
     expiration {
-      days                         = 90
       expired_object_delete_marker = true
     }
   }

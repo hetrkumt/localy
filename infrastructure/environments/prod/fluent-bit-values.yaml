@@ -195,7 +195,7 @@ config:
         Name              tail
         Path              /var/log/containers/*.log
         multiline.parser  docker, cri
-        multiline.flush_ms 2000
+        multiline_flush   2
         Buffer_Max_Size   5M
         Tag               kube.*
         Mem_Buf_Limit     50MB

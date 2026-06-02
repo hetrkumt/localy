@@ -90,9 +90,9 @@ resource "aws_iam_role_policy" "budgets_action_execution" {
 resource "aws_budgets_budget" "loki_daily_cost" {
   name         = "${var.env_name}-loki-daily-cost-circuit-breaker"
   budget_type  = "COST"
-  limit_amount = "50"
+  limit_amount = "1500"
   limit_unit   = "USD"
-  time_unit    = "DAILY"
+  time_unit    = "MONTHLY"
 
   cost_filter {
     name   = "TagKeyValue"

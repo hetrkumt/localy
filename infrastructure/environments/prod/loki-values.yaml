@@ -45,6 +45,11 @@ backend:
 # ---------------------------------------------------------------------------
 gateway:
   replicas: 3
+  deploymentStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   nginxConfig:
     resolver: kube-dns.kube-system.svc.cluster.local valid=30s
 

@@ -6,7 +6,7 @@
 
 resource "helm_release" "node_local_dns" {
   name             = "node-local-dns"
-  repository       = "https://charts.deliveryhero.io/"
+  repository       = "oci://ghcr.io/deliveryhero/helm-charts"
   chart            = "node-local-dns"
   version          = "2.8.0"
   namespace        = "kube-system"

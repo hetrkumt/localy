@@ -1,7 +1,3 @@
-# =============================================================================
-# Kyverno ClusterPolicy 1 — Loki IRSA 신분증 보호 (DevSecOps)
-# [3차 워게임] failurePolicy Fail + 3s 타임아웃 — observability NS 한정 (폭발 반경 제어)
-# =============================================================================
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
@@ -38,16 +34,12 @@ spec:
           or Loki chart gateway (nginx) images. IRSA identity hijacking is denied.
         pattern:
           spec:
-            containers:
-              - image: "grafana/loki:* | docker.io/grafana/loki:* | nginx:* | nginxinc/nginx-unprivileged:*"
+            =(containers):
+              - image: "grafana/loki:* | docker.io/grafana/loki:* | nginxinc/nginx-unprivileged:* | ghcr.io/nginxinc/nginx-unprivileged:*"
             =(initContainers):
-              - image: "grafana/loki:* | docker.io/grafana/loki:* | nginx:* | nginxinc/nginx-unprivileged:*"
+              - image: "grafana/loki:* | docker.io/grafana/loki:* | nginxinc/nginx-unprivileged:* | ghcr.io/nginxinc/nginx-unprivileged:*"
+            X(ephemeralContainers): "null"
 
----
-# =============================================================================
-# Kyverno ClusterPolicy 2 — 인간 배제형 로깅 자동 낙인 (FinOps/SRE)
-# failurePolicy Ignore — 비즈니스 파드 생성 방해 금지 (Fail-open)
-# =============================================================================
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
