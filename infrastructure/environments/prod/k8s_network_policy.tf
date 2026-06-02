@@ -44,6 +44,26 @@ resource "kubernetes_network_policy_v1" "loki_ingress_zero_trust" {
           }
         }
       }
+
+      ports {
+        port     = "3100"
+        protocol = "TCP"
+      }
+      # 2. gRPC
+      ports {
+        port     = "9095"
+        protocol = "TCP"
+      }
+      # 3. Memberlist (TCP)
+      ports {
+        port     = "7946"
+        protocol = "TCP"
+      }
+      # 4. Memberlist (UDP - 가십 프로토콜용)
+      ports {
+        port     = "7946"
+        protocol = "UDP"
+      }
     }
 
     # Fluent Bit → Loki push (monitoring NS AND fluent-bit label)

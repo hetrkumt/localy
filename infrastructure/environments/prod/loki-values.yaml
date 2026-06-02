@@ -44,6 +44,7 @@ backend:
 # Gateway (NGINX): CoreDNS IP 직접 지정 — FQDN resolver 부팅 크래시 원천 봉쇄
 # ---------------------------------------------------------------------------
 gateway:
+  replicas: 3
   nginxConfig:
     resolver: 172.20.0.10 valid=30s
 

@@ -23,7 +23,7 @@ resource "helm_release" "kube_prometheus_stack" {
   version          = "58.2.2" # 안정성이 검증된 최신 Stable 버전
   namespace        = "monitoring"
   create_namespace = true
-  wait = false
+  wait             = true
   timeout          = 600
 
   # [SRE 튜닝] EBS CSI 기동 후, ALB Controller Webhook이 준비된 뒤 관제탑(Grafana Ingress 등)을 배포합니다.

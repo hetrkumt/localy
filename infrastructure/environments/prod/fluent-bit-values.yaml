@@ -128,7 +128,7 @@ resources:
     memory: 128Mi
   limits:
     cpu: 500m
-    memory: 256Mi
+    memory: 512Mi
 
 tolerations:
   - operator: Exists
@@ -147,9 +147,9 @@ luaScripts:
         local log = record["log"]
 
         -- 카드번호 (고정길이 앵커 — catastrophic backtracking 방지)
-        log = string.gsub(log, "%d%d%d%d%-%d%d%d%d%-%d%d%d%d%-%d%d%d", "[REDACTED_CARD]")
-        log = string.gsub(log, "%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d", "[REDACTED_CARD]")
-
+        log = string.gsub(log, "%d%d%d%d%-%d%d%d%d%-%d%d%d%d%-%d%d%d%d", "[REDACTED_CARD]")
++       log = string.gsub(log, "%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d%d", "[REDACTED_CARD]")
+        
         -- 이메일 (단순 bounded 패턴)
         log = string.gsub(log, "[%w%.%-]+@[%w%.%-]+%.%w+", "[REDACTED_EMAIL]")
 
@@ -218,7 +218,14 @@ config:
         Match     kube.*
         Exclude   log .*(ELB-HealthChecker|kube-probe).*
 
-    # 2순위: [Phase 2] 살아남은 알짜배기 로그에만 K8s 메타데이터 부착
+    # 2: [Phase 2 — DevSecOps] PII 마스킹
+    [FILTER]
+        Name    lua
+        Match   kube.*_payment_*
+        script  /fluent-bit/scripts/pii_mask_payment.lua
+        call    mask_payment_pii
+
+    # 3순위: [Phase 2] 살아남은 알짜배기 로그에만 K8s 메타데이터 부착
     [FILTER]
         Name                kubernetes
         Match               kube.*
@@ -230,12 +237,7 @@ config:
         Kubelet_Port        10250
         Kube_Meta_Cache_TTL 60s    # 🚨 [권장] 신선도 유지를 위해 300s -> 60s 단축
 
-    # 3순위: [Phase 2 — DevSecOps] PII 마스킹
-    [FILTER]
-        Name    lua
-        Match   kube.*_payment_*
-        script  /fluent-bit/scripts/pii_mask_payment.lua
-        call    mask_payment_pii
+
 
 
   outputs: |
