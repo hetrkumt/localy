@@ -49,6 +49,59 @@ gateway:
     resolver: 172.20.0.10 valid=30s
 
 # ---------------------------------------------------------------------------
+# [SRE] Ruler 분리 + Sidecar(ConfigMap 룰 주입)
+# ---------------------------------------------------------------------------
+ruler:
+  enabled: true
+  replicas: 2
+  sidecar: true
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# ---------------------------------------------------------------------------
+# [SRE] Ruler Alerting Rules — default 테넌트 (auth_enabled / Fluent Bit tenant_id)
+# ---------------------------------------------------------------------------
+extraObjects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: loki-core-alerting-rules
+      namespace: observability
+      labels:
+        loki_rule: "1"
+    data:
+      default-loki-sre.yaml: |
+        groups:
+          - name: loki_sre_baseline
+            rules:
+              - alert: LokiComponentOOMKilled
+                expr: |
+                  sum(count_over_time({namespace="observability", pod=~"loki-.*"} |~ "(?i)oom|killed"[5m])) > 0
+                for: 2m
+                labels:
+                  severity: critical
+                  team: sre
+                annotations:
+                  summary: "Loki pod OOM/kill event detected"
+                  description: "Check write/read/ruler pods in observability namespace."
+
+              - alert: LokiHighErrorLogRate
+                expr: |
+                  sum(rate({namespace=~"observability|monitoring"} |~ "(?i)error|panic|fatal"[5m])) > 5
+                for: 5m
+                labels:
+                  severity: warning
+                  team: sre
+                annotations:
+                  summary: "Elevated error-class log rate"
+                  description: "Possible query storm, ingest failure, or upstream dependency issue."
+
+# ---------------------------------------------------------------------------
 # Part 3 + 4: Loki core config
 # ---------------------------------------------------------------------------
 loki:
@@ -66,6 +119,7 @@ loki:
     type: s3
     bucketNames:
       chunks: ${loki_s3_bucket_name}
+      ruler: ${loki_s3_bucket_name}
     s3:
       region: ${aws_region}
       s3ForcePathStyle: false
@@ -86,3 +140,12 @@ loki:
 
   limits_config:
     retention_period: 30d
+
+  rulerConfig:
+    enable_alertmanager_v2: true
+    alertmanager_url: http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093
+    storage:
+      type: s3
+      s3:
+        region: ${aws_region}
+        bucketnames: ${loki_s3_bucket_name}
