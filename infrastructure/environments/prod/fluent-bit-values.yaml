@@ -247,6 +247,7 @@ config:
         Match         *
         Host          loki-gateway.observability.svc.cluster.local
         Port          3100
+        tenant_id     default
         Labels        {job="fluent-bit", namespace="$kubernetes['namespace_name']", pod="$kubernetes['pod_name']", container="$kubernetes['container_name']"}
         Line_Format   json
         Compress      gzip

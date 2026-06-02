@@ -49,9 +49,25 @@ gateway:
     resolver: 172.20.0.10 valid=30s
 
 # ---------------------------------------------------------------------------
-# Part 3 + 4: Loki core config
+# [SRE] Ruler 물리 분리 — read/write 심장과 격리
+# ---------------------------------------------------------------------------
+ruler:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# ---------------------------------------------------------------------------
+# Part 3 + 4 + Sprint 5: Loki core config (OOM 방어 / Anti-spoof / VIP Overrides)
 # ---------------------------------------------------------------------------
 loki:
+  auth_enabled: true
+
   schemaConfig:
     configs:
       - from: "2024-04-01"
@@ -66,6 +82,7 @@ loki:
     type: s3
     bucketNames:
       chunks: ${loki_s3_bucket_name}
+      ruler: ${loki_s3_bucket_name}
     s3:
       region: ${aws_region}
       s3ForcePathStyle: false
@@ -86,3 +103,23 @@ loki:
 
   limits_config:
     retention_period: 30d
+    split_queries_by_interval: 24h
+    creation_grace_period: 10m
+    max_query_length: 168h
+    query_timeout: 300s
+    max_entries_limit_per_query: 5000
+    max_query_parallelism: 16
+
+  runtimeConfig:
+    overrides:
+      secops-admin:
+        max_query_length: 720h
+
+  rulerConfig:
+    enable_alertmanager_v2: true
+    alertmanager_url: http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093
+    storage:
+      type: s3
+      s3:
+        region: ${aws_region}
+        bucketnames: ${loki_s3_bucket_name}

@@ -78,6 +78,25 @@ resource "helm_release" "kube_prometheus_stack" {
             uid    = "Loki_TF"
             url    = "http://loki-gateway.observability.svc.cluster.local:3100"
             access = "proxy"
+            jsonData = {
+              httpHeaderName1 = "X-Scope-OrgID"
+            }
+            secureJsonData = {
+              httpHeaderValue1 = "default"
+            }
+          },
+          {
+            name   = "Loki SecOps VIP"
+            type   = "loki"
+            uid    = "Loki_SecOps_VIP"
+            url    = "http://loki-gateway.observability.svc.cluster.local:3100"
+            access = "proxy"
+            jsonData = {
+              httpHeaderName1 = "X-Scope-OrgID"
+            }
+            secureJsonData = {
+              httpHeaderValue1 = "secops-admin"
+            }
           }
         ]
         
