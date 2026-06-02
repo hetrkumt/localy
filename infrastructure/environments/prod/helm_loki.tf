@@ -38,7 +38,9 @@ resource "helm_release" "loki" {
     aws_s3_bucket_server_side_encryption_configuration.loki_logs,
     time_sleep.wait_for_iam_and_s3_propagation, # 30초 대기 족쇄 결속
     helm_release.aws_load_balancer_controller,
+    kubectl_manifest.karpenter_node_pool
     helm_release.kube_prometheus_stack,
+
   ]
   set {
     name  = "gateway.service.annotations.service\\.kubernetes\\.io/topology-mode"
