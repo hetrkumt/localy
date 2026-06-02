@@ -1,0 +1,39 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: inject-fluentbit-exclude-for-system-workloads
+spec:
+  failurePolicy: Ignore
+  background: false
+  rules:
+    - name: add-exclude-annotation-to-system-namespaces
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - cert-manager
+                - external-dns
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              fluentbit.io/exclude: "true"
+
+    - name: add-exclude-annotation-to-job-pods
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      preconditions:
+        all:
+          - key: "{{ request.object.metadata.ownerReferences[0].kind || '' }}"
+            operator: Equals
+            value: Job
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              fluentbit.io/exclude: "true"

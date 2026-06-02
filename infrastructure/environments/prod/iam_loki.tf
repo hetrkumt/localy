@@ -15,6 +15,12 @@ data "aws_iam_policy_document" "loki_s3" {
     resources = [
       aws_s3_bucket.loki_logs.arn,
     ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceVpc"
+      values   = [module.network.vpc_id]
+    }
   }
 
   statement {
@@ -30,6 +36,12 @@ data "aws_iam_policy_document" "loki_s3" {
     resources = [
       "${aws_s3_bucket.loki_logs.arn}/*",
     ]
+
+    condition {
+      test     = "StringEquals"
+      variable = "aws:SourceVpc"
+      values   = [module.network.vpc_id]
+    }
   }
 
   statement {
