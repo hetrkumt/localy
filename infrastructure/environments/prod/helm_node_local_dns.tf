@@ -16,6 +16,7 @@ resource "helm_release" "node_local_dns" {
 
   depends_on = [
     module.eks,
+    helm_release.kube_prometheus_stack
   ]
 
   set {
