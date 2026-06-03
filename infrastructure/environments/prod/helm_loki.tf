@@ -2,10 +2,8 @@
 # [Frame 2 — Loki] Grafana Loki Helm Release (SimpleScalable → observability)
 # =============================================================================
 
-# [Data Source] 현재 테라폼이 찌르고 있는 AWS 리전 정보를 동적으로 추출
-data "aws_region" "current" {}
-
 # [DevSecOps] IAM 및 S3 정책의 AWS 글로벌 복제(전파) 대기 족쇄
+# data.aws_region.current → kms_loki.tf
 resource "time_sleep" "wait_for_iam_and_s3_propagation" {
   depends_on = [
     aws_iam_role_policy.loki_s3,
@@ -39,7 +37,10 @@ resource "helm_release" "loki" {
     aws_kms_key.loki_s3,
     aws_s3_bucket_server_side_encryption_configuration.loki_logs,
     time_sleep.wait_for_iam_and_s3_propagation, # 30초 대기 족쇄 결속
-    helm_release.aws_load_balancer_controller
+    helm_release.aws_load_balancer_controller,
+    kubectl_manifest.karpenter_node_pool,
+    helm_release.kube_prometheus_stack
+
   ]
   set {
     name  = "gateway.service.annotations.service\\.kubernetes\\.io/topology-mode"

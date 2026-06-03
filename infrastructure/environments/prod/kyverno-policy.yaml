@@ -1,0 +1,81 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: protect-loki-irsa-identity
+  annotations:
+    policies.kyverno.io/title: Protect Loki IRSA Identity
+    policies.kyverno.io/category: DevSecOps
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 3
+  background: true
+  rules:
+    - name: deny-non-official-loki-images
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - observability
+              operations:
+                - CREATE
+                - UPDATE
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.serviceAccountName || '' }}"
+            operator: Equals
+            value: loki
+      validate:
+        message: >-
+          Pods with serviceAccountName 'loki' must only use authorized Grafana Loki
+          or Loki chart gateway (nginx) images. IRSA identity hijacking is denied.
+        pattern:
+          spec:
+            =(containers):
+              - image: "grafana/loki:* | docker.io/grafana/loki:* | nginxinc/nginx-unprivileged:* | ghcr.io/nginxinc/nginx-unprivileged:*"
+            =(initContainers):
+              - image: "grafana/loki:* | docker.io/grafana/loki:* | nginxinc/nginx-unprivileged:* | ghcr.io/nginxinc/nginx-unprivileged:*"
+            X(ephemeralContainers): "null"
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: inject-fluentbit-exclude-for-system-workloads
+spec:
+  failurePolicy: Ignore
+  background: false
+  rules:
+    - name: add-exclude-annotation-to-system-namespaces
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - cert-manager
+                - external-dns
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              fluentbit.io/exclude: "true"
+
+    - name: add-exclude-annotation-to-job-pods
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+      preconditions:
+        all:
+          - key: "{{ request.object.metadata.ownerReferences[0].kind || '' }}"
+            operator: Equals
+            value: Job
+      mutate:
+        patchStrategicMerge:
+          metadata:
+            annotations:
+              fluentbit.io/exclude: "true"
