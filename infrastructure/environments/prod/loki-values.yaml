@@ -41,17 +41,91 @@ backend:
     storageClass: gp3
 
 # ---------------------------------------------------------------------------
-# Gateway (NGINX): CoreDNS IP 직접 지정 — FQDN resolver 부팅 크래시 원천 봉쇄
+# Gateway (NGINX): 클러스터 CoreDNS FQDN — 하드코딩 Service IP 제거
 # ---------------------------------------------------------------------------
 gateway:
   replicas: 3
+  deploymentStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 1
   nginxConfig:
-    resolver: 172.20.0.10 valid=30s
+    resolver: kube-dns.kube-system.svc.cluster.local valid=30s
 
 # ---------------------------------------------------------------------------
-# Part 3 + 4: Loki core config
+# [SRE] Ruler 분리 + Sidecar(ConfigMap 룰 주입)
+# ---------------------------------------------------------------------------
+ruler:
+  enabled: true
+  replicas: 2
+  sidecar: true
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# ---------------------------------------------------------------------------
+# [SRE] Ruler Alerting Rules — default 테넌트 (auth_enabled / Fluent Bit tenant_id)
+# ---------------------------------------------------------------------------
+extraObjects:
+  - apiVersion: v1
+    kind: ConfigMap
+    metadata:
+      name: loki-core-alerting-rules
+      namespace: observability
+      labels:
+        loki_rule: "1"
+    data:
+      default-loki-sre.yaml: |
+        groups:
+          - name: loki_sre_baseline
+            rules:
+              - alert: LokiComponentOOMKilled
+                expr: |
+                  sum(count_over_time({namespace="observability", pod=~"loki-.*"} |~ "(?i)oom|killed"[5m])) > 0
+                for: 2m
+                labels:
+                  severity: critical
+                  team: sre
+                annotations:
+                  summary: "Loki pod OOM/kill event detected"
+                  description: "Check write/read/ruler pods in observability namespace."
+
+              - alert: LokiHighErrorLogRate
+                expr: |
+                  sum(rate({namespace=~"observability|monitoring"} |~ "(?i)error|panic|fatal"[5m])) > 5
+                for: 5m
+                labels:
+                  severity: warning
+                  team: sre
+                annotations:
+                  summary: "Elevated error-class log rate"
+                  description: "Possible query storm, ingest failure, or upstream dependency issue."
+
+# ---------------------------------------------------------------------------
+# [SRE] Ruler 물리 분리 — read/write 심장과 격리
+# ---------------------------------------------------------------------------
+ruler:
+  enabled: true
+  replicas: 2
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+# ---------------------------------------------------------------------------
+# Part 3 + 4 + Sprint 5: Loki core config (OOM 방어 / Anti-spoof / VIP Overrides)
 # ---------------------------------------------------------------------------
 loki:
+  auth_enabled: true
+
   schemaConfig:
     configs:
       - from: "2024-04-01"
@@ -66,6 +140,7 @@ loki:
     type: s3
     bucketNames:
       chunks: ${loki_s3_bucket_name}
+      ruler: ${loki_s3_bucket_name}
     s3:
       region: ${aws_region}
       s3ForcePathStyle: false
@@ -85,4 +160,23 @@ loki:
     delete_request_store: s3
 
   limits_config:
-    retention_period: 30d
+    # [FinOps/SRE] S3 Expiration(90d)과 단 1초의 오차도 없는 완벽한 동기화
+    retention_period: 90d
+    # [SRE] 30일 쿼리를 24h 단위로 강제 분할 (Query Frontend 샤딩)
+    split_queries_by_interval: 24h
+    # [DevSecOps] 미래 시간 스푸핑 차단
+    creation_grace_period: 10m
+    # [SRE] 일반 테넌트 조회 상한 7일
+    max_query_length: 168h
+    query_timeout: 300s
+    max_entries_limit_per_query: 5000
+    max_query_parallelism: 1
+
+  rulerConfig:
+    enable_alertmanager_v2: true
+    alertmanager_url: http://kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local:9093
+    storage:
+      type: s3
+      s3:
+        region: ${aws_region}
+        bucketnames: ${loki_s3_bucket_name}
