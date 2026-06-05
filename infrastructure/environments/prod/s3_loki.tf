@@ -1,5 +1,5 @@
 # ========================================================================
-# Loki Cold Storage — S3 Core Vault, Lifecycle Incinerator, PAB Shield
+#    Loki Cold Storage — S3 Core Vault, Lifecycle Incinerator, PAB Shield
 # ========================================================================
 
 data "aws_caller_identity" "current" {}
@@ -20,18 +20,17 @@ locals {
 }
 
 resource "aws_s3_bucket" "loki_logs" {
-  bucket = "${var.env_name}-eks-loki-logs-bucket"
+  bucket = "${var.env_name}-eks-loki-logs-vault"
 
   # 🚨 [임시 추가] 버킷 안에 로그 데이터가 남아 있어도 강제로 모조리 소각 (테스트 환경 용이성)
   force_destroy = true
 
   lifecycle {
-    # 🚨 [임시 수정] 테라폼의 파괴(Destroy) 방어막을 해제
-    prevent_destroy = false 
+    prevent_destroy = true
   }
 
   tags = {
-    Name        = "${var.env_name}-eks-loki-logs-bucket"
+    Name        = "${var.env_name}-eks-loki-logs-vault"
     Environment = var.env_name
     ManagedBy   = "terraform"
     Purpose     = "loki-cold-storage"
@@ -46,18 +45,14 @@ resource "aws_s3_bucket_versioning" "loki_logs" {
   }
 }
 
-resource "aws_s3_bucket_lifecycle_configuration" "loki_logs" {
+resource "aws_s3_bucket_object_lock_configuration" "loki_logs" {
   bucket = aws_s3_bucket.loki_logs.id
 
   # 1. 과거 버전 3일 뒤 소각 (해커의 크립토 슈레딩 방어용 골든타임)
   rule {
-    id     = "noncurrent-version-expiration"
-    status = "Enabled"
-
-    filter {}
-
-    noncurrent_version_expiration {
-      noncurrent_days = 3
+    default_retention {
+      mode = "COMPLIANCE"
+      days = 90
     }
   }
 
@@ -75,7 +70,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "loki_logs" {
 
   # 3. 미완료된 멀티파트 업로드 찌꺼기 소각
   rule {
-    id     = "abort-incomplete-multipart-upload"
+    id     = "noncurrent-version-expiration"
     status = "Enabled"
 
     filter {}
@@ -84,6 +79,11 @@ resource "aws_s3_bucket_lifecycle_configuration" "loki_logs" {
       days_after_initiation = 1
     }
   }
+
+  depends_on = [
+    aws_s3_bucket_versioning.loki_logs,
+    aws_s3_bucket_object_lock_configuration.loki_logs,
+  ]
 }
 
 resource "aws_s3_bucket_public_access_block" "loki_logs" {
@@ -184,10 +184,14 @@ data "aws_iam_policy_document" "loki_logs" {
   }
 
   statement {
-    sid    = "StrictDenyOutsideVpcEndpoint"
+    sid    = "DenyS3AccessNotViaS3VpcEndpoint"
     effect = "Deny"
 
-    principals {
+    
+    
+    
+    
+    {
       type        = "*"
       identifiers = ["*"]
     }
