@@ -1,10 +1,13 @@
 # ========================================================================
-# AWS Budgets — Loki 쿼리 비용 서킷 브레이커 (일 $50 / 100% 시 S3 GetObject Deny)
+# AWS Budgets — FinOps Circuit Breakers
+#   Phase 1: Loki 쿼리 비용 — 100% 시 S3 GetObject Deny
+#   Phase 2: 알람 파이프라인 — 90% 시 sns:Publish / lambda:InvokeFunction Deny
 # ========================================================================
 
-# -------------------------------------------------------------------------
-# 1) 서킷 브레이커 Deny 정책 — Loki IRSA Role에 Budgets가 부착
-# -------------------------------------------------------------------------
+# ========================================================================
+# Phase 1 — Loki IRSA S3 Read Circuit Breaker
+# ========================================================================
+
 data "aws_iam_policy_document" "loki_budget_circuit_breaker_deny" {
   statement {
     sid    = "CircuitBreakerDenyLokiS3GetObject"
@@ -31,8 +34,50 @@ resource "aws_iam_policy" "loki_budget_circuit_breaker_deny" {
   }
 }
 
+# ========================================================================
+# Phase 2 — K8s Alarm Pipeline Hard Circuit Breaker (EDoS / Alarm Loop Guard)
+# ========================================================================
+
+data "aws_iam_policy_document" "alarm_pipeline_budget_circuit_breaker_deny" {
+  statement {
+    sid    = "CircuitBreakerDenyAlarmPipelineSnsPublish"
+    effect = "Deny"
+    actions = [
+      "sns:Publish",
+    ]
+    resources = [
+      local.alarm_pipeline_sns_topic_arn,
+    ]
+  }
+
+  statement {
+    sid    = "CircuitBreakerDenyAlarmPipelineLambdaInvoke"
+    effect = "Deny"
+    actions = [
+      "lambda:InvokeFunction",
+    ]
+    resources = [
+      local.alarm_pipeline_lambda_fn_arn,
+      "${local.alarm_pipeline_lambda_fn_arn}:*",
+    ]
+  }
+}
+
+resource "aws_iam_policy" "alarm_pipeline_budget_circuit_breaker_deny" {
+  name        = "${var.env_name}-alarm-pipeline-budget-circuit-breaker-deny"
+  description = "Budgets circuit breaker: deny SNS publish and Lambda invoke on alarm pipeline roles at 90% daily budget"
+  policy      = data.aws_iam_policy_document.alarm_pipeline_budget_circuit_breaker_deny.json
+
+  tags = {
+    Name        = "${var.env_name}-alarm-pipeline-budget-circuit-breaker-deny"
+    Environment = var.env_name
+    ManagedBy   = "terraform"
+    Purpose     = "alarm-pipeline-budget-circuit-breaker"
+  }
+}
+
 # -------------------------------------------------------------------------
-# 2) Budgets Action Execution Role (Trust + IAM attach 권한)
+# Budgets Action Execution Role (Trust + IAM attach 권한 — Phase 1 + Phase 2 공용)
 # -------------------------------------------------------------------------
 data "aws_iam_policy_document" "budgets_action_execution_assume" {
   statement {
@@ -47,7 +92,7 @@ data "aws_iam_policy_document" "budgets_action_execution_assume" {
 
 data "aws_iam_policy_document" "budgets_action_execution_permissions" {
   statement {
-    sid    = "AllowBudgetsApplyIamPolicyToLokiRole"
+    sid    = "AllowBudgetsApplyIamPolicyToTargetRoles"
     effect = "Allow"
     actions = [
       "iam:GetRole",
@@ -59,10 +104,17 @@ data "aws_iam_policy_document" "budgets_action_execution_permissions" {
       "iam:PutRolePolicy",
       "iam:DeleteRolePolicy",
     ]
-    resources = [
-      aws_iam_role.loki.arn,
-      aws_iam_policy.loki_budget_circuit_breaker_deny.arn,
-    ]
+    resources = concat(
+      [
+        aws_iam_role.loki.arn,
+        aws_iam_policy.loki_budget_circuit_breaker_deny.arn,
+        aws_iam_policy.alarm_pipeline_budget_circuit_breaker_deny.arn,
+      ],
+      [
+        aws_iam_role.alarm_pipeline_sns.arn,
+        aws_iam_role.alarm_pipeline_lambda.arn,
+      ],
+    )
   }
 }
 
@@ -85,7 +137,7 @@ resource "aws_iam_role_policy" "budgets_action_execution" {
 }
 
 # -------------------------------------------------------------------------
-# 3) 일일 예산 ($50) — Loki Vault 태그 기반 비용 격리
+# Phase 1 — Loki 태그 기반 월간 예산 + 100% Kill Switch
 # -------------------------------------------------------------------------
 resource "aws_budgets_budget" "loki_daily_cost" {
   name         = "${var.env_name}-loki-daily-cost-circuit-breaker"
@@ -107,9 +159,6 @@ resource "aws_budgets_budget" "loki_daily_cost" {
   }
 }
 
-# -------------------------------------------------------------------------
-# 4) 100% 도달 시 IAM 서킷 브레이커 (Fail-closed for reads)
-# -------------------------------------------------------------------------
 resource "aws_budgets_budget_action" "loki_daily_cost_kill_switch" {
   budget_name        = aws_budgets_budget.loki_daily_cost.name
   action_type        = "APPLY_IAM_POLICY"
@@ -137,5 +186,67 @@ resource "aws_budgets_budget_action" "loki_daily_cost_kill_switch" {
   depends_on = [
     aws_iam_role_policy.budgets_action_execution,
     aws_iam_role_policy.loki_s3,
+  ]
+}
+
+# -------------------------------------------------------------------------
+# Phase 2 — 일 $5 알람 파이프라인 서비스 한정 예산 + 90% Kill Switch
+# -------------------------------------------------------------------------
+resource "aws_budgets_budget" "alarm_pipeline_daily_cost" {
+  name         = "${var.env_name}-alarm-pipeline-daily-cost-circuit-breaker"
+  budget_type  = "COST"
+  limit_amount = "5"
+  limit_unit   = "USD"
+  time_unit    = "DAILY"
+
+  cost_filter {
+    name = "Service"
+    values = [
+      "Amazon Simple Notification Service",
+      "AWS Lambda",
+      "Amazon CloudWatch",
+    ]
+  }
+
+  tags = {
+    Name        = "${var.env_name}-alarm-pipeline-daily-cost-circuit-breaker"
+    Environment = var.env_name
+    ManagedBy   = "terraform"
+    Purpose     = "alarm-pipeline-edos-circuit-breaker"
+  }
+}
+
+resource "aws_budgets_budget_action" "alarm_pipeline_daily_cost_kill_switch" {
+  budget_name        = aws_budgets_budget.alarm_pipeline_daily_cost.name
+  action_type        = "APPLY_IAM_POLICY"
+  approval_model     = "AUTOMATIC"
+  notification_type  = "ACTUAL"
+  execution_role_arn = aws_iam_role.budgets_action_execution.arn
+
+  action_threshold {
+    action_threshold_type  = "PERCENTAGE"
+    action_threshold_value = 90
+  }
+
+  definition {
+    iam_action_definition {
+      policy_arn = aws_iam_policy.alarm_pipeline_budget_circuit_breaker_deny.arn
+      roles = [
+        aws_iam_role.alarm_pipeline_sns.name,
+        aws_iam_role.alarm_pipeline_lambda.name,
+      ]
+    }
+  }
+
+  subscriber {
+    address           = "sre-alerts@company.com"
+    subscription_type = "EMAIL"
+  }
+
+  depends_on = [
+    aws_iam_role_policy.budgets_action_execution,
+    aws_iam_policy.alarm_pipeline_budget_circuit_breaker_deny,
+    aws_iam_role_policy.alarm_pipeline_sns_publish,
+    aws_iam_role_policy.alarm_pipeline_lambda_s3_dump,
   ]
 }
