@@ -128,6 +128,9 @@ module "eks" {
 # 유발하므로 사용하지 않습니다. endpoint/CA는 module.eks output에서 가져옵니다.
 # 토큰은 exec(aws eks get-token)으로 갱신하여 정적 토큰 만료를 방지합니다.
 # --------------------------------------------------------
+# 현재 AWS Provider가 사용하는 리전 정보를 가져옵니다.
+data "aws_region" "current" {}
+
 provider "kubernetes" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
@@ -135,10 +138,7 @@ provider "kubernetes" {
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
-    args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", "ap-northeast-2"]
-    env = {
-      AWS_PROFILE = "terraform-admin"
-    }
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", data.aws_region.current.name]
   }
 }
 
@@ -150,10 +150,7 @@ provider "helm" {
     exec {
       api_version = "client.authentication.k8s.io/v1beta1"
       command     = "aws"
-      args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", "ap-northeast-2"]
-      env = {
-        AWS_PROFILE = "terraform-admin"
-      }
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", data.aws_region.current.name]
     }
   }
 }
@@ -166,10 +163,8 @@ provider "kubectl" {
   exec {
     api_version = "client.authentication.k8s.io/v1beta1"
     command     = "aws"
-    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-    env = {
-      AWS_PROFILE = "terraform-admin"
-    }
+    # ⚠️ 기존 코드에서 리전이 누락되어 에러가 났던 kubectl 블록에도 동일하게 적용합니다.
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", data.aws_region.current.name]
   }
 }
 

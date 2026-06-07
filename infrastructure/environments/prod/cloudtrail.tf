@@ -13,6 +13,9 @@ resource "aws_s3_bucket" "cloudtrail_logs" {
     ManagedBy   = "terraform"
     Purpose     = "cloudtrail-audit-logs"
   }
+   
+  # 🚨 [임시 추가] 버킷 안에 로그 데이터가 남아 있어도 강제로 모조리 소각 (테스트 환경 용이성)
+  force_destroy = true
 }
 
 resource "aws_s3_bucket_public_access_block" "cloudtrail_logs" {

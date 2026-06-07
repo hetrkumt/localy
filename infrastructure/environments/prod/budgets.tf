@@ -195,9 +195,9 @@ resource "aws_budgets_budget_action" "loki_daily_cost_kill_switch" {
 resource "aws_budgets_budget" "alarm_pipeline_daily_cost" {
   name         = "${var.env_name}-alarm-pipeline-daily-cost-circuit-breaker"
   budget_type  = "COST"
-  limit_amount = "5"
+  limit_amount = "150"
   limit_unit   = "USD"
-  time_unit    = "DAILY"
+  time_unit    = "MONTHLY"
 
   cost_filter {
     name = "Service"

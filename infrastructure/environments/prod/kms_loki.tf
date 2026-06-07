@@ -2,7 +2,7 @@
 # Loki S3 — Customer Managed Key (CMK) for SSE-KMS & Crypto-shredding
 # ========================================================================
 
-data "aws_region" "current" {}
+
 
 data "aws_caller_identity" "loki_kms" {}
 

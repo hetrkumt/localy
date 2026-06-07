@@ -5,30 +5,11 @@
 # ========================================================================
 
 # -------------------------------------------------------------------------
-# 1) Slack Webhook 마스터키 — Secrets Manager (더미 JSON 플레이스홀더)
+# 1) Slack Webhook 마스터키 — Secrets Manager (수동 생성된 시크릿 조회)
 # -------------------------------------------------------------------------
-resource "aws_secretsmanager_secret" "chatops_slack_webhook" {
-  name                    = "${var.env_name}-chatops-slack-webhook"
-  description             = "Slack Incoming Webhook URL for alarm pipeline (runtime inject only)"
-  recovery_window_in_days = 7
-
-  tags = {
-    Name        = "${var.env_name}-chatops-slack-webhook"
-    Environment = var.env_name
-    ManagedBy   = "terraform"
-    Purpose     = "chatops-slack-webhook"
-  }
-}
-
-resource "aws_secretsmanager_secret_version" "chatops_slack_webhook" {
-  secret_id = aws_secretsmanager_secret.chatops_slack_webhook.id
-  secret_string = jsonencode({
-    slack_webhook_url = "https://hooks.slack.com/services/PLACEHOLDER/PLACEHOLDER/PLACEHOLDER"
-  })
-
-  lifecycle {
-    ignore_changes = [secret_string]
-  }
+# [수정] 직접 생성하지 않고, AWS에 이미 존재하는 시크릿을 불러오기만 합니다.
+data "aws_secretsmanager_secret" "chatops_slack_webhook" {
+  name = "${var.env_name}-chatops-slack-webhook"
 }
 
 # -------------------------------------------------------------------------
@@ -42,7 +23,8 @@ data "aws_iam_policy_document" "chatops_lambda_runtime" {
       "secretsmanager:GetSecretValue",
     ]
     resources = [
-      aws_secretsmanager_secret.chatops_slack_webhook.arn,
+      # [수정] aws_secretsmanager_secret -> data.aws_secretsmanager_secret
+      data.aws_secretsmanager_secret.chatops_slack_webhook.arn,
     ]
   }
 
@@ -94,12 +76,6 @@ data "aws_iam_policy_document" "chatops_lambda_runtime" {
       variable = "aws:RequestedRegion"
       values   = [data.aws_region.alarm_pipeline.name]
     }
-
-    condition {
-      test     = "StringEquals"
-      variable = "ec2:Vpc"
-      values   = [module.network.vpc_id]
-    }
   }
 }
 
@@ -114,7 +90,7 @@ resource "aws_iam_role_policy" "chatops_lambda_runtime" {
 # -------------------------------------------------------------------------
 resource "aws_security_group" "chatops_lambda" {
   name        = "${var.env_name}-chatops-lambda-sg"
-  description = "ChatOps alarm Lambda — HTTPS egress only (Slack + AWS APIs via NAT)"
+  description = "ChatOps alarm Lambda - HTTPS egress only (Slack + AWS APIs via NAT)"
   vpc_id      = module.network.vpc_id
 
   egress {
@@ -176,7 +152,8 @@ resource "aws_lambda_function" "chatops_alarm_pipeline" {
   filename         = data.archive_file.chatops_lambda_placeholder.output_path
   source_code_hash = data.archive_file.chatops_lambda_placeholder.output_base64sha256
 
-  reserved_concurrent_executions = 5
+# 🛡️ [SRE 가드레일] 로그 폭탄 방지용 격벽 (AWS 계정 한도 상향 후 활성화 예정)
+  # reserved_concurrent_executions = 5
 
   vpc_config {
     subnet_ids         = module.network.private_subnets
@@ -185,7 +162,8 @@ resource "aws_lambda_function" "chatops_alarm_pipeline" {
 
   environment {
     variables = {
-      SLACK_WEBHOOK_SECRET_ARN = aws_secretsmanager_secret.chatops_slack_webhook.arn
+      # [수정] aws_secretsmanager_secret -> data.aws_secretsmanager_secret
+      SLACK_WEBHOOK_SECRET_ARN = data.aws_secretsmanager_secret.chatops_slack_webhook.arn
       CHATOPS_DUMP_BUCKET_NAME = aws_s3_bucket.chatops_alarm_dump.id
     }
   }
@@ -208,8 +186,9 @@ resource "aws_lambda_function" "chatops_alarm_pipeline" {
 # Outputs — Phase 5 SNS subscription wiring
 # -------------------------------------------------------------------------
 output "chatops_slack_webhook_secret_arn" {
-  description = "Slack webhook Secrets Manager ARN (Console에서 실 URL 교체)"
-  value       = aws_secretsmanager_secret.chatops_slack_webhook.arn
+  description = "Slack webhook Secrets Manager ARN"
+  # [수정] aws_secretsmanager_secret -> data.aws_secretsmanager_secret
+  value       = data.aws_secretsmanager_secret.chatops_slack_webhook.arn
 }
 
 output "chatops_alarm_lambda_arn" {
