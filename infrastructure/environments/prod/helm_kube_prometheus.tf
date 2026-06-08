@@ -180,6 +180,7 @@ resource "helm_release" "kube_prometheus_stack" {
       }
 
       # -----------------------------------------------------------------------
+      # [Phase 3] Alertmanager Multi-AZ HA — 2-AZ 분산 + On-Demand + PDB
       # [Phase 4] Alertmanager DevSecOps — SA 거세 + IRSA + 컨테이너 경화
       # -----------------------------------------------------------------------
       alertmanager = {
@@ -192,7 +193,45 @@ resource "helm_release" "kube_prometheus_stack" {
           automountServiceAccountToken = false
         }
 
+        podDisruptionBudget = {
+          enabled      = true
+          minAvailable = 1
+        }
+
         alertmanagerSpec = {
+          replicas = 2
+
+          nodeSelector = {
+            "karpenter.sh/capacity-type" = "on-demand"
+          }
+
+          affinity = {
+            podAntiAffinity = {
+              requiredDuringSchedulingIgnoredDuringExecution = [
+                {
+                  labelSelector = {
+                    matchLabels = {
+                      "app.kubernetes.io/name"     = "alertmanager"
+                      "app.kubernetes.io/instance" = "kube-prometheus-stack"
+                    }
+                  }
+                  topologyKey = "topology.kubernetes.io/zone"
+                },
+              ]
+            }
+          }
+
+          resources = {
+            requests = {
+              cpu    = "100m"
+              memory = "256Mi"
+            }
+            limits = {
+              cpu    = "200m"
+              memory = "512Mi"
+            }
+          }
+
           automountServiceAccountToken = false
 
           # TODO: [Phase 4] ExternalSecret 배포 후 주석 해제
