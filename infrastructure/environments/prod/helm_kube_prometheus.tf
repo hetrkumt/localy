@@ -364,6 +364,24 @@ resource "helm_release" "kube_prometheus_stack" {
             },
           ]
 
+          # [Phase 3] AlertmanagerConfig CRD discovery — alarm-pipeline routing/inhibition
+          alertmanagerConfigSelector = {
+            matchLabels = {
+              alertmanagerconfig = "alarm-pipeline"
+            }
+          }
+
+          alertmanagerConfigNamespaceSelector = {
+            matchLabels = {
+              "kubernetes.io/metadata.name" = "monitoring"
+            }
+          }
+
+          # [Phase 3 — 권고] cross-namespace alert matching (Phase 2 tier rules)
+          alertmanagerConfigMatcherStrategy = {
+            type = "None"
+          }
+
           securityContext = {
             runAsNonRoot = true
             runAsUser    = 1000
