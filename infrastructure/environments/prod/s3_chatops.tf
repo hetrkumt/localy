@@ -113,6 +113,26 @@ data "aws_iam_policy_document" "chatops_alarm_dump" {
   }
 
   statement {
+    sid    = "AllowJitAuthForensicReadWithoutVpcEndpoint"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.chatops_jit_auth_lambda.arn]
+    }
+
+    actions = [
+      "s3:GetObject",
+      "s3:ListBucket",
+    ]
+
+    resources = [
+      aws_s3_bucket.chatops_alarm_dump.arn,
+      "${aws_s3_bucket.chatops_alarm_dump.arn}/forensic/*",
+    ]
+  }
+
+  statement {
     sid    = "StrictDenyOutsideVpcEndpoint"
     effect = "Deny"
 
@@ -146,7 +166,10 @@ data "aws_iam_policy_document" "chatops_alarm_dump" {
     condition {
       test     = "ArnNotEquals"
       variable = "aws:PrincipalArn"
-      values   = local.s3_policy_bypass_principal_arns
+      values = concat(
+        local.s3_policy_bypass_principal_arns,
+        [aws_iam_role.chatops_jit_auth_lambda.arn],
+      )
     }
 
     condition {

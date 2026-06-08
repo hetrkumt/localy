@@ -110,6 +110,7 @@ spec:
 
   # ---------------------------------------------------------------------------
   # [Phase 3] Receiver — SNS → Lambda ChatOps / S3 Forensic Dump (Phase 4)
+  # [Phase 5] JIT — 평문 S3 URL 폐기, Block Kit 버튼은 Lambda가 조립
   # Pod IRSA( alarm-pipeline-sns-publisher ) → sns:Publish
   # ---------------------------------------------------------------------------
   receivers:
@@ -119,6 +120,15 @@ spec:
           sigv4:
             region: "${aws_region}"
           subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} tier={{ .CommonLabels.tier }}'
+          # ChatOps Lambda 라우팅용 메타데이터 (Message body와 분리 — 파싱 안전)
+          attributes:
+            chatops_pipeline: "alarm-pipeline-jit-v1"
+            alert_status: '{{ .Status }}'
+            common_alertname: '{{ .CommonLabels.alertname }}'
+            common_tier: '{{ .CommonLabels.tier }}'
+            common_severity: '{{ .CommonLabels.severity }}'
+            common_namespace: '{{ .CommonLabels.namespace }}'
+            alert_count: '{{ len .Alerts }}'
           message: |
             {{ range .Alerts -}}
             *Alert:* {{ .Labels.alertname }}
@@ -128,4 +138,8 @@ spec:
             *Summary:* {{ .Annotations.summary }}
             *Description:* {{ .Annotations.description }}
             ---
-            {{ end }}
+            {{ end -}}
+            _포렌식 로그는 JIT(Just-In-Time) 승인 후에만 열람 가능합니다._
+            {{ range .Alerts -}}
+            __JIT_CTX__ v=1|fp={{ .Fingerprint }}|an={{ .Labels.alertname }}|ns={{ .Labels.namespace }}|pod={{ .Labels.pod }}|tier={{ .Labels.tier }}|sev={{ .Labels.severity }}|ts={{ .StartsAt.Unix }}
+            {{ end -}}

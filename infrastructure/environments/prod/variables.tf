@@ -24,3 +24,9 @@ variable "s3_bucket_policy_bypass_principal_arns" {
   type        = list(string)
   default     = []
 }
+
+variable "chatops_sre_slack_user_ids" {
+  description = "JIT log access authorized SRE Slack user IDs (e.g. [\"U01ABCDEF\"]). Injected into auth Lambda env."
+  type        = list(string)
+  default     = []
+}
