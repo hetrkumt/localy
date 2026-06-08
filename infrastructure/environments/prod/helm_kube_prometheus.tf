@@ -13,6 +13,105 @@ resource "random_password" "grafana_admin" {
   override_special = "!#%&*()-_=+[]{}<>:?"
 }
 
+locals {
+  alertmanager_cluster_tls_secret_name    = "alertmanager-cluster-tls"
+  alertmanager_cluster_tls_configmap_name = "alertmanager-cluster-tls-config"
+}
+
+# -----------------------------------------------------------------------------
+# [Phase 1] Alertmanager gossip mTLS — cert-manager Issuer / Certificate
+# Secret 소유권: cert-manager 단독 (Terraform random_password 폐기)
+# -----------------------------------------------------------------------------
+resource "kubernetes_namespace_v1" "monitoring" {
+  metadata {
+    name = "monitoring"
+    labels = {
+      "managed-by" = "terraform"
+    }
+  }
+}
+
+resource "kubernetes_manifest" "alertmanager_cluster_ca_issuer" {
+  manifest = {
+    apiVersion = "cert-manager.io/v1"
+    kind       = "Issuer"
+    metadata = {
+      name      = "alertmanager-cluster-ca"
+      namespace = kubernetes_namespace_v1.monitoring.metadata[0].name
+    }
+    spec = {
+      selfSigned = {}
+    }
+  }
+
+  depends_on = [
+    helm_release.cert_manager,
+    kubernetes_namespace_v1.monitoring,
+  ]
+}
+
+resource "kubernetes_manifest" "alertmanager_cluster_tls_certificate" {
+  manifest = {
+    apiVersion = "cert-manager.io/v1"
+    kind       = "Certificate"
+    metadata = {
+      name      = local.alertmanager_cluster_tls_secret_name
+      namespace = kubernetes_namespace_v1.monitoring.metadata[0].name
+    }
+    spec = {
+      secretName  = local.alertmanager_cluster_tls_secret_name
+      duration    = "8760h"
+      renewBefore = "720h"
+      issuerRef = {
+        name = kubernetes_manifest.alertmanager_cluster_ca_issuer.manifest.metadata.name
+        kind = "Issuer"
+      }
+      commonName = "alertmanager-cluster"
+      dnsNames = [
+        "kube-prometheus-stack-alertmanager",
+        "kube-prometheus-stack-alertmanager.monitoring",
+        "kube-prometheus-stack-alertmanager.monitoring.svc",
+        "kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local",
+      ]
+      ipAddresses = ["127.0.0.1"]
+    }
+  }
+
+  depends_on = [
+    kubernetes_manifest.alertmanager_cluster_ca_issuer,
+  ]
+}
+
+resource "kubernetes_config_map_v1" "alertmanager_cluster_tls_config" {
+  metadata {
+    name      = local.alertmanager_cluster_tls_configmap_name
+    namespace = kubernetes_namespace_v1.monitoring.metadata[0].name
+    labels = {
+      "app.kubernetes.io/name"      = "alertmanager"
+      "app.kubernetes.io/component" = "cluster-tls-config"
+      "managed-by"                  = "terraform"
+    }
+  }
+
+  data = {
+    "tls-config.yaml" = <<-EOF
+      tls_server_config:
+        cert_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/tls.crt
+        key_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/tls.key
+        client_auth_type: RequireAndVerifyClientCert
+        client_ca_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/ca.crt
+      tls_client_config:
+        cert_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/tls.crt
+        key_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/tls.key
+        ca_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/ca.crt
+    EOF
+  }
+
+  depends_on = [
+    kubernetes_namespace_v1.monitoring,
+  ]
+}
+
 # -----------------------------------------------------------------------------
 # Task 2~4: 방어적 SRE 튜닝이 결속된 관제탑 본체 투하
 # -----------------------------------------------------------------------------
@@ -31,6 +130,9 @@ resource "helm_release" "kube_prometheus_stack" {
     aws_eks_addon.ebs_csi,
     helm_release.aws_load_balancer_controller,
     aws_iam_role.alarm_pipeline_sns,
+    helm_release.cert_manager,
+    kubernetes_manifest.alertmanager_cluster_tls_certificate,
+    kubernetes_config_map_v1.alertmanager_cluster_tls_config,
   ]
 
 
@@ -182,6 +284,7 @@ resource "helm_release" "kube_prometheus_stack" {
       # -----------------------------------------------------------------------
       # [Phase 3] Alertmanager Multi-AZ HA — 2-AZ 분산 + On-Demand + PDB
       # [Phase 4] Alertmanager DevSecOps — SA 거세 + IRSA + 컨테이너 경화
+      # [Phase 1] FinOps gossip 튜닝 + mTLS (cert-manager B-1)
       # -----------------------------------------------------------------------
       alertmanager = {
         serviceAccount = {
@@ -234,10 +337,32 @@ resource "helm_release" "kube_prometheus_stack" {
 
           automountServiceAccountToken = false
 
-          # TODO: [Phase 4] ExternalSecret 배포 후 주석 해제
-          # secrets = [
-          #   local.alarm_pipeline_alertmanager_k8s_secret_name,
-          # ],
+          secrets = [
+            local.alertmanager_cluster_tls_secret_name,
+          ]
+
+          configMaps = [
+            local.alertmanager_cluster_tls_configmap_name,
+          ]
+
+          additionalArgs = [
+            {
+              name  = "cluster.gossip-interval"
+              value = "2s"
+            },
+            {
+              name  = "cluster.pushpull-interval"
+              value = "3m"
+            },
+            {
+              name  = "cluster.tls-config"
+              value = "/etc/alertmanager/configmaps/${local.alertmanager_cluster_tls_configmap_name}/tls-config.yaml"
+            },
+            {
+              name  = "cluster.label"
+              value = "${var.env_name}-alertmanager"
+            },
+          ]
 
           securityContext = {
             runAsNonRoot = true
