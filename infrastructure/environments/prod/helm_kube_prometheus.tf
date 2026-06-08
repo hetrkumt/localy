@@ -30,7 +30,7 @@ resource "kubernetes_namespace_v1" "monitoring" {
     }
   }
 }
-
+/* 잠시 주석 처리!
 resource "kubernetes_manifest" "alertmanager_cluster_ca_issuer" {
   manifest = {
     apiVersion = "cert-manager.io/v1"
@@ -49,7 +49,7 @@ resource "kubernetes_manifest" "alertmanager_cluster_ca_issuer" {
     kubernetes_namespace_v1.monitoring,
   ]
 }
-
+*/
 resource "kubernetes_manifest" "alertmanager_cluster_tls_certificate" {
   manifest = {
     apiVersion = "cert-manager.io/v1"
