@@ -43,6 +43,49 @@ spec:
 apiVersion: kyverno.io/v1
 kind: ClusterPolicy
 metadata:
+  name: protect-alertmanager-irsa-identity
+  annotations:
+    policies.kyverno.io/title: Protect Alertmanager IRSA Identity
+    policies.kyverno.io/category: DevSecOps
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 3
+  background: true
+  rules:
+    - name: deny-non-official-alertmanager-images
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - monitoring
+              operations:
+                - CREATE
+                - UPDATE
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.serviceAccountName || '' }}"
+            operator: Equals
+            value: alarm-pipeline-sns-publisher
+      validate:
+        message: >-
+          Pods with serviceAccountName 'alarm-pipeline-sns-publisher' must only
+          use authorized Alertmanager or config-reloader images. IRSA identity
+          hijacking is denied.
+        pattern:
+          spec:
+            =(containers):
+              - image: "quay.io/prometheus/alertmanager:* | prometheus/alertmanager:* | docker.io/prometheus/alertmanager:* | quay.io/prometheus-operator/prometheus-config-reloader:* | prometheus-operator/prometheus-config-reloader:*"
+            =(initContainers):
+              - image: "quay.io/prometheus/alertmanager:* | prometheus/alertmanager:* | docker.io/prometheus/alertmanager:* | quay.io/prometheus-operator/prometheus-config-reloader:* | prometheus-operator/prometheus-config-reloader:*"
+            X(ephemeralContainers): "null"
+
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
   name: inject-fluentbit-exclude-for-system-workloads
 spec:
   failurePolicy: Ignore

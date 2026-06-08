@@ -13,11 +13,15 @@ locals {
   alarm_pipeline_lambda_fn_name = "${var.env_name}-alarm-pipeline-s3-dumper"
 
   alarm_pipeline_sns_topic_arn = "arn:aws:sns:${data.aws_region.alarm_pipeline.name}:${data.aws_caller_identity.alarm_pipeline.account_id}:${local.alarm_pipeline_sns_topic_name}"
-  alarm_pipeline_lambda_fn_arn   = "arn:aws:lambda:${data.aws_region.alarm_pipeline.name}:${data.aws_caller_identity.alarm_pipeline.account_id}:function:${local.alarm_pipeline_lambda_fn_name}"
+  alarm_pipeline_lambda_fn_arn = "arn:aws:lambda:${data.aws_region.alarm_pipeline.name}:${data.aws_caller_identity.alarm_pipeline.account_id}:function:${local.alarm_pipeline_lambda_fn_name}"
+
+  # [Phase 4] Alertmanager K8s 신원·마스터키 명칭 (OIDC / RBAC / Helm 단일 소스)
+  alarm_pipeline_alertmanager_sa_name         = "alarm-pipeline-sns-publisher"
+  alarm_pipeline_alertmanager_k8s_secret_name = "alarm-pipeline-alertmanager-secrets"
 }
 
 # -------------------------------------------------------------------------
-# SNS Publisher Role — Alertmanager IRSA (Phase 4 Helm SA 결속 예정)
+# SNS Publisher Role — Alertmanager IRSA (Helm SA 결속: helm_kube_prometheus.tf)
 # -------------------------------------------------------------------------
 data "aws_iam_policy_document" "alarm_pipeline_sns_assume" {
   statement {
@@ -147,4 +151,59 @@ output "alarm_pipeline_sns_topic_arn_expected" {
 output "alarm_pipeline_lambda_fn_arn_expected" {
   description = "Phase 4 Lambda must use this name for budgets Deny alignment"
   value       = local.alarm_pipeline_lambda_fn_arn
+}
+
+# -------------------------------------------------------------------------
+# Alertmanager Pinpoint RBAC — SM 연동 Secret get/watch 전용 (Intent)
+# Phase 4.5: Helm ClusterRole resourceNames 스코핑 패치 예정
+# -------------------------------------------------------------------------
+resource "kubernetes_role_v1" "alarm_pipeline_alertmanager_secret_reader" {
+  metadata {
+    name      = "alarm-pipeline-alertmanager-secret-reader"
+    namespace = "monitoring"
+
+    labels = {
+      "app.kubernetes.io/name"      = "alertmanager"
+      "app.kubernetes.io/component" = "rbac"
+      "managed-by"                  = "terraform"
+    }
+  }
+
+  rule {
+    api_groups = [""]
+    resources  = ["secrets"]
+    verbs      = ["get", "watch"]
+    resource_names = [
+      local.alarm_pipeline_alertmanager_k8s_secret_name,
+    ]
+  }
+}
+
+resource "kubernetes_role_binding_v1" "alarm_pipeline_alertmanager_secret_reader" {
+  metadata {
+    name      = "alarm-pipeline-alertmanager-secret-reader"
+    namespace = "monitoring"
+
+    labels = {
+      "app.kubernetes.io/name"      = "alertmanager"
+      "app.kubernetes.io/component" = "rbac"
+      "managed-by"                  = "terraform"
+    }
+  }
+
+  role_ref {
+    api_group = "rbac.authorization.k8s.io"
+    kind      = "Role"
+    name      = kubernetes_role_v1.alarm_pipeline_alertmanager_secret_reader.metadata[0].name
+  }
+
+  subject {
+    kind      = "ServiceAccount"
+    name      = local.alarm_pipeline_alertmanager_sa_name
+    namespace = "monitoring"
+  }
+
+  depends_on = [
+    helm_release.kube_prometheus_stack,
+  ]
 }

@@ -30,6 +30,7 @@ resource "helm_release" "kube_prometheus_stack" {
   depends_on = [
     aws_eks_addon.ebs_csi,
     helm_release.aws_load_balancer_controller,
+    aws_iam_role.alarm_pipeline_sns,
   ]
 
 
@@ -49,18 +50,18 @@ resource "helm_release" "kube_prometheus_stack" {
         }
         additionalDataSources = [
           {
-            name      = "Prometheus TF"
-            type      = "prometheus"
-            uid       = "Prometheus_TF"  
-            url       = "http://kube-prometheus-stack-prometheus.monitoring:9090"
-            access    = "proxy"
+            name   = "Prometheus TF"
+            type   = "prometheus"
+            uid    = "Prometheus_TF"
+            url    = "http://kube-prometheus-stack-prometheus.monitoring:9090"
+            access = "proxy"
           },
           {
-            name      = "Prometheus LBC"
-            type      = "prometheus"
-            uid       = "Prometheus_LBC"  
-            url       = "http://kube-prometheus-stack-prometheus.monitoring:9090"
-            access    = "proxy"
+            name   = "Prometheus LBC"
+            type   = "prometheus"
+            uid    = "Prometheus_LBC"
+            url    = "http://kube-prometheus-stack-prometheus.monitoring:9090"
+            access = "proxy"
           },
           {
             name   = "CloudWatch"
@@ -68,8 +69,8 @@ resource "helm_release" "kube_prometheus_stack" {
             uid    = "CloudWatch_TF"
             access = "proxy"
             jsonData = {
-              authType      = "default"          # EKS 워커 노드에 부여된 IAM 권한을 그대로 상속받음
-              defaultRegion = "ap-northeast-2"   # 서울 리전 타겟팅
+              authType      = "default"        # EKS 워커 노드에 부여된 IAM 권한을 그대로 상속받음
+              defaultRegion = "ap-northeast-2" # 서울 리전 타겟팅
             }
           },
           {
@@ -99,16 +100,16 @@ resource "helm_release" "kube_prometheus_stack" {
             }
           }
         ]
-        
+
 
         sidecar = {
           dashboards = {
             enabled    = true
-            label      = "grafana_dashboard" 
-            labelValue = "1"                 
+            label      = "grafana_dashboard"
+            labelValue = "1"
           }
         }
-        
+
         ingress = {
           enabled          = true
           ingressClassName = "alb"
@@ -116,15 +117,15 @@ resource "helm_release" "kube_prometheus_stack" {
             # 1. 퍼블릭 망 노출
             "alb.ingress.kubernetes.io/scheme" = "internet-facing"
             # 2. 공유 ALB 그룹 결속 (비용 최적화)
-            "alb.ingress.kubernetes.io/group.name" = "prod-ingress-group"
-            "alb.ingress.kubernetes.io/target-type" = "ip"
+            "alb.ingress.kubernetes.io/group.name"   = "prod-ingress-group"
+            "alb.ingress.kubernetes.io/target-type"  = "ip"
             "alb.ingress.kubernetes.io/listen-ports" = "[{\"HTTPS\":443}]"
-            
-						# 3. acm.tf 리소스를 직접 바라보도록 'data.' 제거
-						"alb.ingress.kubernetes.io/certificate-arn" = aws_acm_certificate.prod_cert.arn
-						
-						# 4. waf.tf의 실제 리소스 이름인 'ingress_waf'로 명칭 교정
-						"alb.ingress.kubernetes.io/wafv2-acl-arn"   = aws_wafv2_web_acl.ingress_waf.arn
+
+            # 3. acm.tf 리소스를 직접 바라보도록 'data.' 제거
+            "alb.ingress.kubernetes.io/certificate-arn" = aws_acm_certificate.prod_cert.arn
+
+            # 4. waf.tf의 실제 리소스 이름인 'ingress_waf'로 명칭 교정
+            "alb.ingress.kubernetes.io/wafv2-acl-arn" = aws_wafv2_web_acl.ingress_waf.arn
           }
           hosts = [
             "grafana.feifo.click" # 접속할 관제탑 URL
@@ -175,6 +176,56 @@ resource "helm_release" "kube_prometheus_stack" {
               memory = "4Gi" # 최대 허용 메모리 (초과 시 해당 파드만 즉시 사살)
             }
           }
+        }
+      }
+
+      # -----------------------------------------------------------------------
+      # [Phase 4] Alertmanager DevSecOps — SA 거세 + IRSA + 컨테이너 경화
+      # -----------------------------------------------------------------------
+      alertmanager = {
+        serviceAccount = {
+          create = true
+          name   = local.alarm_pipeline_alertmanager_sa_name
+          annotations = {
+            "eks.amazonaws.com/role-arn" = aws_iam_role.alarm_pipeline_sns.arn
+          }
+          automountServiceAccountToken = false
+        }
+
+        alertmanagerSpec = {
+          automountServiceAccountToken = false
+
+          # TODO: [Phase 4] ExternalSecret 배포 후 주석 해제
+          # secrets = [
+          #   local.alarm_pipeline_alertmanager_k8s_secret_name,
+          # ],
+
+          securityContext = {
+            runAsNonRoot = true
+            runAsUser    = 1000
+            runAsGroup   = 2000
+            fsGroup      = 2000
+            seccompProfile = {
+              type = "RuntimeDefault"
+            }
+          }
+
+          containers = [
+            {
+              name = "alertmanager"
+              securityContext = {
+                readOnlyRootFilesystem   = true
+                allowPrivilegeEscalation = false
+                privileged               = false
+                capabilities = {
+                  drop = ["ALL"]
+                }
+                seccompProfile = {
+                  type = "RuntimeDefault"
+                }
+              }
+            },
+          ]
         }
       }
     })
