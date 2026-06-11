@@ -1,0 +1,18 @@
+{{ define "chatops.top3" -}}
+{{- $n := len .Alerts -}}
+{{- range $i, $a := .Alerts -}}
+{{- if lt $i 3 -}}
+*Alert:* {{ $a.Labels.alertname }}
+*Severity:* {{ $a.Labels.severity }}
+*Tier:* {{ $a.Labels.tier }}
+*Namespace/Pod:* {{ $a.Labels.namespace }}/{{ $a.Labels.pod }}
+*Summary:* {{ $a.Annotations.summary }}
+*Description:* {{ $a.Annotations.description }}
+---
+{{ end -}}
+{{- end -}}
+{{- if gt $n 3 -}}
+🚨 총 {{ $n }}개의 알람이 폭주 중입니다. (상위 3개 요약 출력됨)
+상세 payload는 S3 포렌식 덤프 우회망을 참조하십시오.
+{{- end -}}
+{{- end -}}

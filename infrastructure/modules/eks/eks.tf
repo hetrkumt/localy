@@ -59,6 +59,11 @@ resource "aws_eks_node_group" "this" {
   instance_types = ["t3.medium"]
   capacity_type  = "ON_DEMAND" # 안정성을 위해 On-Demand 고정
 
+  launch_template {
+    id      = aws_launch_template.node.id
+    version = aws_launch_template.node.latest_version
+  }
+
   labels = {
     "role" = "system"
   }
@@ -82,5 +87,31 @@ resource "aws_eks_node_group" "this" {
   tags = {
     Name                     = "${var.cluster_name}-system-node"
     "karpenter.sh/discovery" = var.cluster_name
+  }
+}
+
+# ==========================================
+# EKS 워커 노드용 시작 템플릿 (Launch Template)
+# ==========================================
+resource "aws_launch_template" "node" {
+  name_prefix   = "${var.cluster_name}-node-lt-"
+  description   = "Launch template for EKS worker nodes with custom security group"
+  
+  # 자동으로 최신 버전을 기본 버전으로 설정
+  update_default_version = true
+
+  vpc_security_group_ids = [aws_security_group.node.id]
+
+  # 노드 인스턴스 자체에 생성될 태그 정의
+  tag_specifications {
+    resource_type = "instance"
+    tags = {
+      Name                                        = "${var.cluster_name}-system-node"
+      "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+    }
+  }
+
+  lifecycle {
+    create_before_destroy = true
   }
 }

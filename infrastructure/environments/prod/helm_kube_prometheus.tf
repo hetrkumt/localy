@@ -16,6 +16,7 @@ resource "random_password" "grafana_admin" {
 locals {
   alertmanager_cluster_tls_secret_name    = "alertmanager-cluster-tls"
   alertmanager_cluster_tls_configmap_name = "alertmanager-cluster-tls-config"
+  alertmanager_templates_configmap_name   = "alertmanager-templates"
 }
 
 # -----------------------------------------------------------------------------
@@ -30,7 +31,7 @@ resource "kubernetes_namespace_v1" "monitoring" {
     }
   }
 }
-/* 잠시 주석 처리!
+
 resource "kubernetes_manifest" "alertmanager_cluster_ca_issuer" {
   manifest = {
     apiVersion = "cert-manager.io/v1"
@@ -47,9 +48,10 @@ resource "kubernetes_manifest" "alertmanager_cluster_ca_issuer" {
   depends_on = [
     helm_release.cert_manager,
     kubernetes_namespace_v1.monitoring,
+    helm_release.kube_prometheus_stack
   ]
 }
-*/
+
 resource "kubernetes_manifest" "alertmanager_cluster_tls_certificate" {
   manifest = {
     apiVersion = "cert-manager.io/v1"
@@ -72,13 +74,20 @@ resource "kubernetes_manifest" "alertmanager_cluster_tls_certificate" {
         "kube-prometheus-stack-alertmanager.monitoring",
         "kube-prometheus-stack-alertmanager.monitoring.svc",
         "kube-prometheus-stack-alertmanager.monitoring.svc.cluster.local",
+
+        "alertmanager-operated",
+        "alertmanager-operated.monitoring",
+        "alertmanager-operated.monitoring.svc",
+        "alertmanager-operated.monitoring.svc.cluster.local",
+        "alertmanager-kube-prometheus-stack-alertmanager-0.alertmanager-operated",
+        "alertmanager-kube-prometheus-stack-alertmanager-1.alertmanager-operated"
       ]
       ipAddresses = ["127.0.0.1"]
     }
   }
 
   depends_on = [
-    kubernetes_manifest.alertmanager_cluster_ca_issuer,
+    #kubernetes_manifest.alertmanager_cluster_ca_issuer,
   ]
 }
 
@@ -131,8 +140,9 @@ resource "helm_release" "kube_prometheus_stack" {
     helm_release.aws_load_balancer_controller,
     aws_iam_role.alarm_pipeline_sns,
     helm_release.cert_manager,
-    kubernetes_manifest.alertmanager_cluster_tls_certificate,
-    kubernetes_config_map_v1.alertmanager_cluster_tls_config,
+    #kubernetes_manifest.alertmanager_cluster_tls_certificate,
+    #kubernetes_config_map_v1.alertmanager_cluster_tls_config,
+    kubernetes_config_map_v1.alertmanager_templates,
   ]
 
 
@@ -301,6 +311,55 @@ resource "helm_release" "kube_prometheus_stack" {
           minAvailable = 1
         }
 
+        # [Phase 4] Template glob — chart default config 보존 + chatops-top3.tmpl mount path
+        config = {
+          global = {
+            resolve_timeout = "5m"
+          }
+          inhibit_rules = [
+            {
+              # 백슬래시(\)를 사용하여 큰따옴표를 문자열 안에 포함시킵니다.
+              source_matchers = ["severity=\"critical\""]
+              target_matchers = ["severity=~\"warning|info\""]
+              equal           = ["namespace", "alertname"]
+            },
+            {
+              source_matchers = ["severity=\"warning\""]
+              target_matchers = ["severity=\"info\""]
+              equal           = ["namespace", "alertname"]
+            },
+            {
+              source_matchers = ["alertname=\"InfoInhibitor\""]
+              target_matchers = ["severity=\"info\""]
+              equal           = ["namespace"]
+            },
+            {
+              target_matchers = ["alertname=\"InfoInhibitor\""]
+            },
+          ]
+          route = {
+            group_by        = ["namespace"]
+            group_wait      = "30s"
+            group_interval  = "5m"
+            repeat_interval = "12h"
+            receiver        = "null"
+            routes = [
+              {
+                receiver = "null"
+                # 여기 matchers에도 동일하게 적용합니다.
+                matchers = ["alertname=\"Watchdog\""]
+              },
+            ]
+          }
+          receivers = [
+            { name = "null" },
+          ]
+          templates = [
+            "/etc/alertmanager/config/*.tmpl",
+            "/etc/alertmanager/configmaps/alertmanager-templates/*.tmpl",
+          ]
+        }
+
         alertmanagerSpec = {
           replicas = 2
 
@@ -315,7 +374,7 @@ resource "helm_release" "kube_prometheus_stack" {
                   labelSelector = {
                     matchLabels = {
                       "app.kubernetes.io/name"     = "alertmanager"
-                      "app.kubernetes.io/instance" = "kube-prometheus-stack"
+                      "app.kubernetes.io/instance" = "kube-prometheus-stack-alertmanager"
                     }
                   }
                   topologyKey = "topology.kubernetes.io/zone"
@@ -343,6 +402,7 @@ resource "helm_release" "kube_prometheus_stack" {
 
           configMaps = [
             local.alertmanager_cluster_tls_configmap_name,
+            local.alertmanager_templates_configmap_name,
           ]
 
           additionalArgs = [
@@ -357,11 +417,7 @@ resource "helm_release" "kube_prometheus_stack" {
             {
               name  = "cluster.tls-config"
               value = "/etc/alertmanager/configmaps/${local.alertmanager_cluster_tls_configmap_name}/tls-config.yaml"
-            },
-            {
-              name  = "cluster.label"
-              value = "${var.env_name}-alertmanager"
-            },
+            }
           ]
 
           # [Phase 3] AlertmanagerConfig CRD discovery — alarm-pipeline routing/inhibition

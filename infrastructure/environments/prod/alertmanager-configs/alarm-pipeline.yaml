@@ -129,17 +129,4 @@ spec:
             common_severity: '{{ .CommonLabels.severity }}'
             common_namespace: '{{ .CommonLabels.namespace }}'
             alert_count: '{{ len .Alerts }}'
-          message: |
-            {{ range .Alerts -}}
-            *Alert:* {{ .Labels.alertname }}
-            *Severity:* {{ .Labels.severity }}
-            *Tier:* {{ .Labels.tier }}
-            *Namespace/Pod:* {{ .Labels.namespace }}/{{ .Labels.pod }}
-            *Summary:* {{ .Annotations.summary }}
-            *Description:* {{ .Annotations.description }}
-            ---
-            {{ end -}}
-            _포렌식 로그는 JIT(Just-In-Time) 승인 후에만 열람 가능합니다._
-            {{ range .Alerts -}}
-            __JIT_CTX__ v=1|fp={{ .Fingerprint }}|an={{ .Labels.alertname }}|ns={{ .Labels.namespace }}|pod={{ .Labels.pod }}|tier={{ .Labels.tier }}|sev={{ .Labels.severity }}|ts={{ .StartsAt.Unix }}
-            {{ end -}}
+          message: '{{ template "chatops.top3" . }}'
