@@ -13,6 +13,21 @@ output "s3_vpc_endpoint_id" {
   value       = module.vpc_endpoints.endpoints["s3"].id
 }
 
+output "sns_vpc_endpoint_id" {
+  description = "SNS Interface VPC Endpoint ID for alarm-pipeline private publish"
+  value       = aws_vpc_endpoint.sns.id
+}
+
+output "sts_vpc_endpoint_id" {
+  description = "STS Interface VPC Endpoint ID for IRSA AssumeRoleWithWebIdentity"
+  value       = aws_vpc_endpoint.sts.id
+}
+
+output "interface_vpc_endpoint_security_group_id" {
+  description = "Shared Security Group ID for SNS/STS Interface VPC Endpoints"
+  value       = aws_security_group.interface_vpc_endpoint.id
+}
+
 output "nat_gateway_public_ips" {
   description = "Elastic IP public addresses bound to NAT Gateway(s). EKS private subnet outbound (Slack API etc.) egress IPs."
   value       = module.vpc.nat_public_ips
