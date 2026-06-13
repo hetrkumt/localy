@@ -20,9 +20,9 @@ spec:
             (
               deriv(
                 container_memory_working_set_bytes{
-                  container!="", container!="POD", image!=""
-                }[5m:1m]
-              ) > 1048576
+                container!="", container!="POD", image!=""
+                }[2m]
+              ) > 524288
             )
             and on (namespace, pod, container)
             (
@@ -36,7 +36,7 @@ spec:
             kube_pod_labels{label_tier="1"}
             unless on (namespace)
             kube_namespace_labels{label_tier="3"}
-          for: 1m
+          for: 0s
           labels:
             severity: security-critical
             signal: MemorySaturation

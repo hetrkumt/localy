@@ -56,10 +56,78 @@ resource "aws_lambda_permission" "chatops_jit_auth_apigw" {
   source_arn    = "${aws_apigatewayv2_api.chatops_jit.execution_arn}/*/*"
 }
 
+# ========================================================================
+# Route 53 Custom Domain & ACM SSL 결속 (api.feifo.click)
+# ========================================================================
+data "aws_route53_zone" "primary" {
+  name         = "feifo.click."
+  private_zone = false
+}
+
+resource "aws_acm_certificate" "chatops_jit_cert" {
+  domain_name       = "api.feifo.click"
+  validation_method = "DNS"
+
+  lifecycle {
+    create_before_destroy = true
+  }
+}
+
+resource "aws_route53_record" "chatops_jit_cert_validation" {
+  for_each = {
+    for dvo in aws_acm_certificate.chatops_jit_cert.domain_validation_options : dvo.domain_name => {
+      name   = dvo.resource_record_name
+      record = dvo.resource_record_value
+      type   = dvo.resource_record_type
+    }
+  }
+
+  allow_overwrite = true
+  name            = each.value.name
+  records         = [each.value.record]
+  ttl             = 60
+  type            = each.value.type
+  zone_id         = data.aws_route53_zone.primary.zone_id
+}
+
+resource "aws_acm_certificate_validation" "chatops_jit_cert" {
+  certificate_arn         = aws_acm_certificate.chatops_jit_cert.arn
+  validation_record_fqdns = [for record in aws_route53_record.chatops_jit_cert_validation : record.fqdn]
+}
+
+resource "aws_apigatewayv2_domain_name" "chatops_jit" {
+  domain_name = "api.feifo.click"
+
+  domain_name_configuration {
+    certificate_arn = aws_acm_certificate_validation.chatops_jit_cert.certificate_arn
+    endpoint_type   = "REGIONAL"
+    security_policy = "TLS_1_2"
+  }
+}
+
+# 🔥 가장 중요한 결속: 새로 태어나는 API Gateway를 고정 도메인과 물리적 연결
+resource "aws_apigatewayv2_api_mapping" "chatops_jit" {
+  api_id      = aws_apigatewayv2_api.chatops_jit.id
+  domain_name = aws_apigatewayv2_domain_name.chatops_jit.id
+  stage       = aws_apigatewayv2_stage.chatops_jit.name
+}
+
+resource "aws_route53_record" "chatops_jit_api_alias" {
+  name    = aws_apigatewayv2_domain_name.chatops_jit.domain_name
+  type    = "A"
+  zone_id = data.aws_route53_zone.primary.zone_id
+
+  alias {
+    name                   = aws_apigatewayv2_domain_name.chatops_jit.domain_name_configuration[0].target_domain_name
+    zone_id                = aws_apigatewayv2_domain_name.chatops_jit.domain_name_configuration[0].hosted_zone_id
+    evaluate_target_health = false
+  }
+}
+
 # -------------------------------------------------------------------------
-# Outputs — Slack App Interactivity Request URL 등록용
+# Outputs — Slack App Interactivity Request URL 등록용 (고정 도메인으로 변환)
 # -------------------------------------------------------------------------
 output "chatops_jit_slack_interactivity_url" {
   description = "Slack App > Interactivity & Shortcuts > Request URL"
-  value       = "${aws_apigatewayv2_api.chatops_jit.api_endpoint}${replace(local.chatops_jit_interactions_route, "POST ", "/")}"
+  value       = "https://${aws_apigatewayv2_domain_name.chatops_jit.domain_name}${replace(local.chatops_jit_interactions_route, "POST ", "")}"
 }

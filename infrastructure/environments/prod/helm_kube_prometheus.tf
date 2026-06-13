@@ -14,9 +14,8 @@ resource "random_password" "grafana_admin" {
 }
 
 locals {
-  alertmanager_cluster_tls_secret_name    = "alertmanager-cluster-tls"
-  alertmanager_cluster_tls_configmap_name = "alertmanager-cluster-tls-config"
-  alertmanager_templates_configmap_name   = "alertmanager-templates"
+  alertmanager_cluster_tls_secret_name  = "alertmanager-cluster-tls"
+  alertmanager_templates_configmap_name = "alertmanager-templates"
 }
 
 # -----------------------------------------------------------------------------
@@ -48,7 +47,6 @@ resource "kubernetes_manifest" "alertmanager_cluster_ca_issuer" {
   depends_on = [
     helm_release.cert_manager,
     kubernetes_namespace_v1.monitoring,
-    helm_release.kube_prometheus_stack
   ]
 }
 
@@ -87,37 +85,7 @@ resource "kubernetes_manifest" "alertmanager_cluster_tls_certificate" {
   }
 
   depends_on = [
-    #kubernetes_manifest.alertmanager_cluster_ca_issuer,
-  ]
-}
-
-resource "kubernetes_config_map_v1" "alertmanager_cluster_tls_config" {
-  metadata {
-    name      = local.alertmanager_cluster_tls_configmap_name
-    namespace = kubernetes_namespace_v1.monitoring.metadata[0].name
-    labels = {
-      "app.kubernetes.io/name"      = "alertmanager"
-      "app.kubernetes.io/component" = "cluster-tls-config"
-      "managed-by"                  = "terraform"
-    }
-  }
-
-  data = {
-    "tls-config.yaml" = <<-EOF
-      tls_server_config:
-        cert_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/tls.crt
-        key_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/tls.key
-        client_auth_type: RequireAndVerifyClientCert
-        client_ca_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/ca.crt
-      tls_client_config:
-        cert_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/tls.crt
-        key_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/tls.key
-        ca_file: /etc/alertmanager/secrets/${local.alertmanager_cluster_tls_secret_name}/ca.crt
-    EOF
-  }
-
-  depends_on = [
-    kubernetes_namespace_v1.monitoring,
+    kubernetes_manifest.alertmanager_cluster_ca_issuer,
   ]
 }
 
@@ -128,7 +96,7 @@ resource "helm_release" "kube_prometheus_stack" {
   name             = "kube-prometheus-stack"
   repository       = "https://prometheus-community.github.io/helm-charts"
   chart            = "kube-prometheus-stack"
-  version          = "58.2.2" # 안정성이 검증된 최신 Stable 버전
+  version          = "70.0.0" # Operator v0.81.0 — clusterTLS CRD 정식 지원
   namespace        = "monitoring"
   create_namespace = true
   wait             = true
@@ -140,11 +108,9 @@ resource "helm_release" "kube_prometheus_stack" {
     helm_release.aws_load_balancer_controller,
     aws_iam_role.alarm_pipeline_sns,
     helm_release.cert_manager,
-    #kubernetes_manifest.alertmanager_cluster_tls_certificate,
-    #kubernetes_config_map_v1.alertmanager_cluster_tls_config,
+    kubernetes_manifest.alertmanager_cluster_tls_certificate,
     kubernetes_config_map_v1.alertmanager_templates,
   ]
-
 
   values = [
     yamlencode({
@@ -212,7 +178,6 @@ resource "helm_release" "kube_prometheus_stack" {
             }
           }
         ]
-
 
         sidecar = {
           dashboards = {
@@ -294,7 +259,7 @@ resource "helm_release" "kube_prometheus_stack" {
       # -----------------------------------------------------------------------
       # [Phase 3] Alertmanager Multi-AZ HA — 2-AZ 분산 + On-Demand + PDB
       # [Phase 4] Alertmanager DevSecOps — SA 거세 + IRSA + 컨테이너 경화
-      # [Phase 1] FinOps gossip 튜닝 + mTLS (cert-manager B-1)
+      # [Phase 1] FinOps gossip 튜닝 + mTLS (cert-manager + clusterTLS native)
       # -----------------------------------------------------------------------
       alertmanager = {
         serviceAccount = {
@@ -396,29 +361,56 @@ resource "helm_release" "kube_prometheus_stack" {
 
           automountServiceAccountToken = false
 
-          secrets = [
-            local.alertmanager_cluster_tls_secret_name,
-          ]
-
           configMaps = [
-            local.alertmanager_cluster_tls_configmap_name,
             local.alertmanager_templates_configmap_name,
           ]
 
-          additionalArgs = [
-            {
-              name  = "cluster.gossip-interval"
-              value = "2s"
-            },
-            {
-              name  = "cluster.pushpull-interval"
-              value = "3m"
-            },
-            {
-              name  = "cluster.tls-config"
-              value = "/etc/alertmanager/configmaps/${local.alertmanager_cluster_tls_configmap_name}/tls-config.yaml"
+          clusterLabel            = "${var.env_name}-alertmanager-core"
+          clusterGossipInterval   = "2s"
+          clusterPushpullInterval = "3m"
+
+          # chart v70 template: clusterTLS는 additionalConfig를 통해 CR spec.clusterTLS로 주입
+          additionalConfig = {
+            clusterTLS = {
+              server = {
+                cert = {
+                  secret = {
+                    name = local.alertmanager_cluster_tls_secret_name
+                    key  = "tls.crt"
+                  }
+                }
+                keySecret = {
+                  name = local.alertmanager_cluster_tls_secret_name
+                  key  = "tls.key"
+                }
+                client_ca = {
+                  secret = {
+                    name = local.alertmanager_cluster_tls_secret_name
+                    key  = "ca.crt"
+                  }
+                }
+                clientAuthType = "RequireAndVerifyClientCert"
+              }
+              client = {
+                ca = {
+                  secret = {
+                    name = local.alertmanager_cluster_tls_secret_name
+                    key  = "ca.crt"
+                  }
+                }
+                cert = {
+                  secret = {
+                    name = local.alertmanager_cluster_tls_secret_name
+                    key  = "tls.crt"
+                  }
+                }
+                keySecret = {
+                  name = local.alertmanager_cluster_tls_secret_name
+                  key  = "tls.key"
+                }
+              }
             }
-          ]
+          }
 
           # [Phase 3] AlertmanagerConfig CRD discovery — alarm-pipeline routing/inhibition
           alertmanagerConfigSelector = {

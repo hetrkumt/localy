@@ -116,7 +116,7 @@ spec:
   receivers:
     - name: sns-chatops
       snsConfigs:
-        - topicArn: "${sns_topic_arn}"
+        - topicARN: "${sns_topic_arn}"
           sigv4:
             region: "${aws_region}"
           subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} tier={{ .CommonLabels.tier }}'
