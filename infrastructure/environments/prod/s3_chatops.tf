@@ -113,6 +113,24 @@ data "aws_iam_policy_document" "chatops_alarm_dump" {
   }
 
   statement {
+    sid    = "AllowDispatchForensicPutWithoutVpcEndpoint"
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.chatops_dispatch_lambda.arn]
+    }
+
+    actions = [
+      "s3:PutObject",
+    ]
+
+    resources = [
+      "${aws_s3_bucket.chatops_alarm_dump.arn}/forensic/*",
+    ]
+  }
+
+  statement {
     sid    = "AllowJitAuthForensicReadWithoutVpcEndpoint"
     effect = "Allow"
 
@@ -168,7 +186,10 @@ data "aws_iam_policy_document" "chatops_alarm_dump" {
       variable = "aws:PrincipalArn"
       values = concat(
         local.s3_policy_bypass_principal_arns,
-        [aws_iam_role.chatops_jit_auth_lambda.arn],
+        [
+          aws_iam_role.chatops_jit_auth_lambda.arn,
+          aws_iam_role.chatops_dispatch_lambda.arn,
+        ],
       )
     }
 
@@ -204,7 +225,10 @@ data "aws_iam_policy_document" "chatops_alarm_dump" {
     condition {
       test     = "StringNotEquals"
       variable = "aws:PrincipalArn"
-      values   = [aws_iam_role.alarm_pipeline_lambda.arn]
+      values = [
+        aws_iam_role.alarm_pipeline_lambda.arn,
+        aws_iam_role.chatops_dispatch_lambda.arn,
+      ]
     }
 
     condition {

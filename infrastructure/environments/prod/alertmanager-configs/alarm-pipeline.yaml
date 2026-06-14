@@ -109,9 +109,10 @@ spec:
         continue: false
 
   # ---------------------------------------------------------------------------
-  # [Phase 3] Receiver — SNS → Lambda ChatOps / S3 Forensic Dump (Phase 4)
-  # [Phase 5] JIT — 평문 S3 URL 폐기, Block Kit 버튼은 Lambda가 조립
-  # Pod IRSA( alarm-pipeline-sns-publisher ) → sns:Publish
+  # [Phase 6] Receiver — SNS Decoupling (Slack 직결 소각 완료)
+  #   K8s UI 렌더링 책임 0 — __JIT_CTX__ 초경량 JSON만 SNS body에 실음
+  #   Pod IRSA (alarm-pipeline-sns-publisher) → sns:Publish
+  #   Downstream: Dispatch Lambda → Slack Block Kit 조립
   # ---------------------------------------------------------------------------
   receivers:
     - name: sns-chatops
@@ -119,14 +120,7 @@ spec:
         - topicARN: "${sns_topic_arn}"
           sigv4:
             region: "${aws_region}"
-          subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }} tier={{ .CommonLabels.tier }}'
-          # ChatOps Lambda 라우팅용 메타데이터 (Message body와 분리 — 파싱 안전)
+          subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
           attributes:
             chatops_pipeline: "alarm-pipeline-jit-v1"
-            alert_status: '{{ .Status }}'
-            common_alertname: '{{ .CommonLabels.alertname }}'
-            common_tier: '{{ .CommonLabels.tier }}'
-            common_severity: '{{ .CommonLabels.severity }}'
-            common_namespace: '{{ .CommonLabels.namespace }}'
-            alert_count: '{{ len .Alerts }}'
-          message: '{{ template "chatops.top3" . }}'
+          message: '__JIT_CTX__{"v":1,"status":"{{ .Status }}","groupKey":"{{ .GroupLabels.alertname }}-{{ .GroupLabels.namespace }}","groupLabels":{"alertname":"{{ .GroupLabels.alertname }}","namespace":"{{ .GroupLabels.namespace }}","tier":"{{ .GroupLabels.tier }}","cluster":"{{ .GroupLabels.cluster }}"},"commonLabels":{"alertname":"{{ .CommonLabels.alertname }}","severity":"{{ .CommonLabels.severity }}","tier":"{{ .CommonLabels.tier }}","namespace":"{{ .CommonLabels.namespace }}","cluster":"{{ .CommonLabels.cluster }}","origin":"{{ .CommonLabels.origin }}"},"commonAnnotations":{"summary":"{{ reReplaceAll "\n" "\\n" (reReplaceAll "\"" "\\\"" (reReplaceAll "\\\\" "\\\\" .CommonAnnotations.summary)) }}","description":"{{ reReplaceAll "\n" "\\n" (reReplaceAll "\"" "\\\"" (reReplaceAll "\\\\" "\\\\" .CommonAnnotations.description)) }}"},"alertCount":{{ len .Alerts }}}'

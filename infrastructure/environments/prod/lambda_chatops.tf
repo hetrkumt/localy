@@ -269,6 +269,19 @@ data "aws_iam_policy_document" "chatops_jit_auth_lambda_runtime" {
       "arn:aws:logs:${data.aws_region.alarm_pipeline.name}:${data.aws_caller_identity.alarm_pipeline.account_id}:log-group:/aws/lambda/${local.chatops_jit_auth_lambda_fn_name}:*",
     ]
   }
+  
+  statement {
+    sid    = "AllowVpcEniForJitAuthLambda"
+    effect = "Allow"
+    actions = [
+      "ec2:CreateNetworkInterface",
+      "ec2:DescribeNetworkInterfaces",
+      "ec2:DeleteNetworkInterface",
+      "ec2:AssignPrivateIpAddresses",
+      "ec2:UnassignPrivateIpAddresses"
+    ]
+    resources = ["*"]
+  }
 }
 
 resource "aws_iam_role" "chatops_jit_auth_lambda" {
@@ -316,12 +329,17 @@ resource "aws_lambda_function" "chatops_jit_auth" {
   role          = aws_iam_role.chatops_jit_auth_lambda.arn
   handler       = "lambda_function.handler"
   runtime       = "python3.12"
-  timeout       = 3
+  timeout       = 30
   memory_size   = 128
 
   filename         = data.archive_file.chatops_jit_auth_lambda.output_path
   source_code_hash = data.archive_file.chatops_jit_auth_lambda.output_base64sha256
 
+  vpc_config {
+    subnet_ids         = module.network.private_subnets
+    security_group_ids = [aws_security_group.chatops_lambda.id]
+  }
+  
   environment {
     variables = {
       SLACK_SIGNING_SECRET_ARN     = data.aws_secretsmanager_secret.chatops_slack_signing.arn

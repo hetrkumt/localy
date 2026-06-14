@@ -2,13 +2,19 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 import urllib.parse
+import urllib.request  # 🚀 내장 통신 모듈 추가
 from typing import Any
 
 import boto3
 from botocore.exceptions import ClientError
+
+# 로그 기록용 객체 활성화
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 ACTION_ID = "request_jit_log_access"
 DENY_MESSAGE = "접근 권한이 없습니다."
@@ -57,7 +63,6 @@ def _presign_expiry_seconds() -> int:
 
 
 def _slack_response(text: str, *, status_code: int = 200) -> dict[str, Any]:
-    # chat.postMessage 금지 — Interactivity 동기 응답 ephemeral only
     return {
         "statusCode": status_code,
         "headers": {"Content-Type": "application/json"},
@@ -70,6 +75,28 @@ def _slack_response(text: str, *, status_code: int = 200) -> dict[str, Any]:
             ensure_ascii=False,
         ),
     }
+
+
+def _post_to_slack_url(response_url: str, text: str) -> None:
+    """슬랙이 허용한 비밀 통로(response_url)로 진짜 링크 알맹이를 쏘아 보내는 무전기 함수"""
+    if not response_url:
+        return
+        
+    payload = {
+        "response_type": "ephemeral",
+        "replace_original": False,
+        "text": text
+    }
+    
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+    req = urllib.request.Request(
+        response_url,
+        data=data,
+        headers={"Content-Type": "application/json; charset=utf-8"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+        response.read()
 
 
 def _verify_slack_signature(headers: dict[str, str], body: str) -> bool:
@@ -243,11 +270,21 @@ def handler(event, context):
         object_key = _resolve_forensic_object_key(jit_ctx)
         presigned_url = _generate_presigned_url(object_key)
 
-        return _slack_response(_build_success_message(presigned_url, object_key))
+        # 1. 비밀 주소 파싱
+        response_url = payload.get("response_url")
+
+        # 2. 실물 함수 작동하여 슬랙 화면에 진짜 링크 노출
+        _post_to_slack_url(response_url, _build_success_message(presigned_url, object_key))
+
+        # 3. 슬랙 본사 채널에 즉시 빈 영수증 던지고 정상 퇴근
+        return {"statusCode": 200, "body": ""}
 
     except ValueError as exc:
+        logger.warning("ValueError: %s", exc)
         return _slack_response(f"요청을 처리할 수 없습니다: {exc}", status_code=400)
-    except ClientError:
+    except ClientError as exc:
+        logger.exception("S3 ClientError occurred: %s", exc)
         return _slack_response("포렌식 저장소 접근에 실패했습니다. SRE에 문의하세요.", status_code=500)
-    except Exception:
+    except Exception as exc:
+        logger.exception("Unexpected internal error: %s", exc)  # 🚀 블랙박스 예외 로깅 추가
         return _slack_response("내부 오류가 발생했습니다. SRE에 문의하세요.", status_code=500)
