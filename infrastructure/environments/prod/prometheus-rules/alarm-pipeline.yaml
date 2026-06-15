@@ -165,7 +165,11 @@ spec:
       rules:
         - alert: PodOOMKilledConfirmed
           expr: |
-            kube_pod_container_status_last_terminated_reason{reason="OOMKilled", container!=""}
+            (
+              kube_pod_container_status_last_terminated_reason{reason="OOMKilled", container!=""}
+              and on (namespace, pod, container)
+              increase(kube_pod_container_status_restarts_total{container!=""}[30m]) > 0
+            )
             * on (namespace, pod) group_left(label_tier)
             kube_pod_labels{label_tier=~"1|2"}
             > 0
