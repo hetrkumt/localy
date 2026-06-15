@@ -25,8 +25,9 @@ module "vpc" {
   }
   # Karpenter용 Discovery 태그를 추가합니다.
   private_subnet_tags = {
-    "kubernetes.io/role/internal-elb" = 1
-    "karpenter.sh/discovery"          = "prod-eks"
+    "kubernetes.io/role/internal-elb"                    = 1
+    "kubernetes.io/cluster/${var.env_name}-eks"          = "shared"
+    "karpenter.sh/discovery"                             = "${var.env_name}-eks"
   }
 }
 

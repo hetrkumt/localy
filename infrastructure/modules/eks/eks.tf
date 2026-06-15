@@ -102,6 +102,12 @@ resource "aws_launch_template" "node" {
 
   vpc_security_group_ids = [aws_security_group.node.id]
 
+  metadata_options {
+    http_endpoint               = "enabled"
+    http_tokens                 = "required"
+    http_put_response_hop_limit = 2
+  }
+
   # 노드 인스턴스 자체에 생성될 태그 정의
   tag_specifications {
     resource_type = "instance"

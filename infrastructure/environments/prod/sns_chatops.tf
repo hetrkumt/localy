@@ -6,7 +6,8 @@
 # ========================================================================
 
 resource "aws_sns_topic" "chatops_alarm_pipeline" {
-  name = local.alarm_pipeline_sns_topic_name
+  name              = local.alarm_pipeline_sns_topic_name
+  kms_master_key_id = "alias/aws/sns"
 
   tags = {
     Name        = local.alarm_pipeline_sns_topic_name

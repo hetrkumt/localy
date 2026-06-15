@@ -40,7 +40,7 @@ resource "aws_security_group_rule" "interface_vpc_endpoint_egress_all" {
   from_port         = 0
   to_port           = 0
   protocol          = "-1"
-  cidr_blocks       = ["0.0.0.0/0"]
+  cidr_blocks       = [var.vpc_cidr]
   security_group_id = aws_security_group.interface_vpc_endpoint.id
 }
 
