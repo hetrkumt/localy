@@ -28,5 +28,16 @@ variable "s3_bucket_policy_bypass_principal_arns" {
 variable "chatops_sre_slack_user_ids" {
   description = "JIT log access authorized SRE Slack user IDs (e.g. [\"U01ABCDEF\"]). Injected into auth Lambda env."
   type        = list(string)
-  default     = ["U0B8D8SMD0X"]
+
+  validation {
+    condition     = length(var.chatops_sre_slack_user_ids) > 0
+    error_message = "chatops_sre_slack_user_ids must contain at least one Slack user ID."
+  }
+
+  validation {
+    condition = alltrue([
+      for id in var.chatops_sre_slack_user_ids : can(regex("^U[A-Z0-9]{8,}$", id))
+    ])
+    error_message = "Each chatops_sre_slack_user_ids entry must be a Slack user ID matching ^U[A-Z0-9]{8,}$."
+  }
 }
