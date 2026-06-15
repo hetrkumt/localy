@@ -1,6 +1,6 @@
 # ========================================================================
 # ChatOps Alarm Forensic Vault — S3 Zero-Trust Dump Bucket
-#   Phase 3: 알람 원본 덤프 포렌식 볼트 (VPCE 격리 + 90일 소각 + SSE-S3)
+#   Phase 3: 알람 원본 덤프 포렌식 볼트 (VPCE 격리 + 90일 소각 + SSE-KMS)
 # ========================================================================
 
 resource "aws_s3_bucket" "chatops_alarm_dump" {
@@ -38,14 +38,23 @@ resource "aws_s3_bucket_lifecycle_configuration" "chatops_alarm_dump" {
   }
 }
 
+# ========================================================================
+# SSE-KMS Lock + FinOps S3 Bucket Key (CMK → kms_chatops.tf)
+# ========================================================================
+
 resource "aws_s3_bucket_server_side_encryption_configuration" "chatops_alarm_dump" {
   bucket = aws_s3_bucket.chatops_alarm_dump.id
 
   rule {
     apply_server_side_encryption_by_default {
-      sse_algorithm = "AES256"
+      sse_algorithm     = "aws:kms"
+      kms_master_key_id = aws_kms_key.chatops_s3.arn
     }
+
+    bucket_key_enabled = true
   }
+
+  depends_on = [aws_kms_key.chatops_s3]
 }
 
 # ========================================================================
@@ -53,38 +62,6 @@ resource "aws_s3_bucket_server_side_encryption_configuration" "chatops_alarm_dum
 # ========================================================================
 
 data "aws_iam_policy_document" "chatops_alarm_dump" {
-  statement {
-    sid    = "AllowS3AccessViaS3VpcEndpointOnly"
-    effect = "Allow"
-
-    principals {
-      type        = "*"
-      identifiers = ["*"]
-    }
-
-    actions = [
-      "s3:GetObject",
-      "s3:PutObject",
-      "s3:DeleteObject",
-      "s3:ListBucket",
-      "s3:GetBucketLocation",
-      "s3:ListBucketMultipartUploads",
-      "s3:AbortMultipartUpload",
-      "s3:ListMultipartUploadParts",
-    ]
-
-    resources = [
-      aws_s3_bucket.chatops_alarm_dump.arn,
-      "${aws_s3_bucket.chatops_alarm_dump.arn}/*",
-    ]
-
-    condition {
-      test     = "StringEquals"
-      variable = "aws:sourceVpce"
-      values   = [module.network.s3_vpc_endpoint_id]
-    }
-  }
-
   statement {
     sid    = "AllowChatOpsLambdaViaVpcEndpointOnly"
     effect = "Allow"

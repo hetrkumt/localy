@@ -282,6 +282,18 @@ data "aws_iam_policy_document" "chatops_jit_auth_lambda_runtime" {
     ]
     resources = ["*"]
   }
+
+  statement {
+    sid    = "AllowKMSCryptoForForensicVault"
+    effect = "Allow"
+    actions = [
+      "kms:Decrypt",
+      "kms:DescribeKey",
+    ]
+    resources = [
+      aws_kms_key.chatops_s3.arn,
+    ]
+  }
 }
 
 resource "aws_iam_role" "chatops_jit_auth_lambda" {

@@ -199,6 +199,7 @@ def _resolve_forensic_object_key(ctx: dict[str, str]) -> str:
     prefix = f"forensic/{fingerprint}/"
 
     candidates = [
+        f"{prefix}jit-ctx.json",
         f"{prefix}dump.tar.gz",
         f"{prefix}forensic-dump.tar.gz",
     ]

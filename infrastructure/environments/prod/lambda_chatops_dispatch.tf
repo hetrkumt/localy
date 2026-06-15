@@ -63,6 +63,18 @@ data "aws_iam_policy_document" "chatops_dispatch_lambda_runtime" {
       "${aws_s3_bucket.chatops_alarm_dump.arn}/forensic/*",
     ]
   }
+
+  statement {
+    sid    = "AllowKMSCryptoForForensicVault"
+    effect = "Allow"
+    actions = [
+      "kms:GenerateDataKey",
+      "kms:DescribeKey",
+    ]
+    resources = [
+      aws_kms_key.chatops_s3.arn,
+    ]
+  }
 }
 
 resource "aws_iam_role" "chatops_dispatch_lambda" {

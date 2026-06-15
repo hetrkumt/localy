@@ -110,6 +110,18 @@ data "aws_iam_policy_document" "alarm_pipeline_lambda_s3_dump" {
       values   = [module.network.vpc_id]
     }
   }
+
+  statement {
+    sid    = "AllowKMSCryptoForForensicVault"
+    effect = "Allow"
+    actions = [
+      "kms:GenerateDataKey",
+      "kms:DescribeKey",
+    ]
+    resources = [
+      aws_kms_key.chatops_s3.arn,
+    ]
+  }
 }
 
 resource "aws_iam_role" "alarm_pipeline_lambda" {
