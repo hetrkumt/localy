@@ -23,7 +23,7 @@ data "aws_iam_policy_document" "loki_budget_circuit_breaker_deny" {
 
 resource "aws_iam_policy" "loki_budget_circuit_breaker_deny" {
   name        = "${var.env_name}-loki-budget-circuit-breaker-deny"
-  description = "Budgets circuit breaker: deny Loki S3 GetObject when daily cost budget is exceeded"
+  description = "Budgets circuit breaker: deny Loki S3 GetObject when monthly cost budget is exceeded"
   policy      = data.aws_iam_policy_document.loki_budget_circuit_breaker_deny.json
 
   tags = {
@@ -65,7 +65,7 @@ data "aws_iam_policy_document" "alarm_pipeline_budget_circuit_breaker_deny" {
 
 resource "aws_iam_policy" "alarm_pipeline_budget_circuit_breaker_deny" {
   name        = "${var.env_name}-alarm-pipeline-budget-circuit-breaker-deny"
-  description = "Budgets circuit breaker: deny SNS publish and Lambda invoke on alarm pipeline roles at 90% daily budget"
+  description = "Budgets circuit breaker: deny SNS publish and Lambda invoke on alarm pipeline roles at 90% monthly budget"
   policy      = data.aws_iam_policy_document.alarm_pipeline_budget_circuit_breaker_deny.json
 
   tags = {
@@ -140,7 +140,7 @@ resource "aws_iam_role_policy" "budgets_action_execution" {
 # Phase 1 — Loki 태그 기반 월간 예산 + 100% Kill Switch
 # -------------------------------------------------------------------------
 resource "aws_budgets_budget" "loki_daily_cost" {
-  name         = "${var.env_name}-loki-daily-cost-circuit-breaker"
+  name         = "${var.env_name}-loki-monthly-cost-circuit-breaker"
   budget_type  = "COST"
   limit_amount = "1500"
   limit_unit   = "USD"
@@ -152,7 +152,7 @@ resource "aws_budgets_budget" "loki_daily_cost" {
   }
 
   tags = {
-    Name        = "${var.env_name}-loki-daily-cost-circuit-breaker"
+    Name        = "${var.env_name}-loki-monthly-cost-circuit-breaker"
     Environment = var.env_name
     ManagedBy   = "terraform"
     Purpose     = "loki-query-cost-circuit-breaker"
@@ -193,7 +193,7 @@ resource "aws_budgets_budget_action" "loki_daily_cost_kill_switch" {
 # Phase 2 — 일 $5 알람 파이프라인 서비스 한정 예산 + 90% Kill Switch
 # -------------------------------------------------------------------------
 resource "aws_budgets_budget" "alarm_pipeline_daily_cost" {
-  name         = "${var.env_name}-alarm-pipeline-daily-cost-circuit-breaker"
+  name         = "${var.env_name}-alarm-pipeline-monthly-cost-circuit-breaker"
   budget_type  = "COST"
   limit_amount = "150"
   limit_unit   = "USD"
@@ -209,7 +209,7 @@ resource "aws_budgets_budget" "alarm_pipeline_daily_cost" {
   }
 
   tags = {
-    Name        = "${var.env_name}-alarm-pipeline-daily-cost-circuit-breaker"
+    Name        = "${var.env_name}-alarm-pipeline-monthly-cost-circuit-breaker"
     Environment = var.env_name
     ManagedBy   = "terraform"
     Purpose     = "alarm-pipeline-edos-circuit-breaker"
