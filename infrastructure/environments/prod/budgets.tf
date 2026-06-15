@@ -1,7 +1,7 @@
 # ========================================================================
 # AWS Budgets — FinOps Circuit Breakers
 #   Phase 1: Loki 쿼리 비용 — 100% 시 S3 GetObject Deny
-#   Phase 2: 알람 파이프라인 — 90% 시 sns:Publish / lambda:InvokeFunction Deny
+#   Phase 2: 알람 파이프라인 — 90% 시 sns:Publish Deny (MANUAL approval)
 # ========================================================================
 
 # ========================================================================
@@ -49,23 +49,11 @@ data "aws_iam_policy_document" "alarm_pipeline_budget_circuit_breaker_deny" {
       local.alarm_pipeline_sns_topic_arn,
     ]
   }
-
-  statement {
-    sid    = "CircuitBreakerDenyAlarmPipelineLambdaInvoke"
-    effect = "Deny"
-    actions = [
-      "lambda:InvokeFunction",
-    ]
-    resources = [
-      local.alarm_pipeline_lambda_fn_arn,
-      "${local.alarm_pipeline_lambda_fn_arn}:*",
-    ]
-  }
 }
 
 resource "aws_iam_policy" "alarm_pipeline_budget_circuit_breaker_deny" {
   name        = "${var.env_name}-alarm-pipeline-budget-circuit-breaker-deny"
-  description = "Budgets circuit breaker: deny SNS publish and Lambda invoke on alarm pipeline roles at 90% daily budget"
+  description = "Budgets circuit breaker: deny SNS publish on alarm pipeline SNS role at 90% daily budget"
   policy      = data.aws_iam_policy_document.alarm_pipeline_budget_circuit_breaker_deny.json
 
   tags = {
@@ -112,7 +100,6 @@ data "aws_iam_policy_document" "budgets_action_execution_permissions" {
       ],
       [
         aws_iam_role.alarm_pipeline_sns.arn,
-        aws_iam_role.alarm_pipeline_lambda.arn,
       ],
     )
   }
@@ -190,21 +177,25 @@ resource "aws_budgets_budget_action" "loki_daily_cost_kill_switch" {
 }
 
 # -------------------------------------------------------------------------
-# Phase 2 — 일 $5 알람 파이프라인 서비스 한정 예산 + 90% Kill Switch
+# Phase 2 — 일 $5 알람 파이프라인 태그 기반 예산 + 90% Kill Switch (MANUAL)
 # -------------------------------------------------------------------------
 resource "aws_budgets_budget" "alarm_pipeline_daily_cost" {
   name         = "${var.env_name}-alarm-pipeline-daily-cost-circuit-breaker"
   budget_type  = "COST"
-  limit_amount = "150"
+  limit_amount = "5"
   limit_unit   = "USD"
-  time_unit    = "MONTHLY"
+  time_unit    = "DAILY"
 
   cost_filter {
-    name = "Service"
+    name = "TagKeyValue"
     values = [
-      "Amazon Simple Notification Service",
-      "AWS Lambda",
-      "Amazon CloudWatch",
+      "user:Purpose$chatops-alarm-pipeline-ingress",
+      "user:Purpose$chatops-alarm-pipeline",
+      "user:Purpose$chatops-dispatch",
+      "user:Purpose$chatops-jit-auth",
+      "user:Purpose$chatops-alarm-forensic-vault",
+      "user:Purpose$chatops-s3-encryption",
+      "user:Purpose$chatops-alarm-lambda",
     ]
   }
 
@@ -219,7 +210,7 @@ resource "aws_budgets_budget" "alarm_pipeline_daily_cost" {
 resource "aws_budgets_budget_action" "alarm_pipeline_daily_cost_kill_switch" {
   budget_name        = aws_budgets_budget.alarm_pipeline_daily_cost.name
   action_type        = "APPLY_IAM_POLICY"
-  approval_model     = "AUTOMATIC"
+  approval_model     = "MANUAL"
   notification_type  = "ACTUAL"
   execution_role_arn = aws_iam_role.budgets_action_execution.arn
 
@@ -233,7 +224,6 @@ resource "aws_budgets_budget_action" "alarm_pipeline_daily_cost_kill_switch" {
       policy_arn = aws_iam_policy.alarm_pipeline_budget_circuit_breaker_deny.arn
       roles = [
         aws_iam_role.alarm_pipeline_sns.name,
-        aws_iam_role.alarm_pipeline_lambda.name,
       ]
     }
   }
@@ -247,6 +237,5 @@ resource "aws_budgets_budget_action" "alarm_pipeline_daily_cost_kill_switch" {
     aws_iam_role_policy.budgets_action_execution,
     aws_iam_policy.alarm_pipeline_budget_circuit_breaker_deny,
     aws_iam_role_policy.alarm_pipeline_sns_publish,
-    aws_iam_role_policy.alarm_pipeline_lambda_s3_dump,
   ]
 }
