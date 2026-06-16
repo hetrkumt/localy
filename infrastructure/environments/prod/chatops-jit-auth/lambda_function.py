@@ -112,7 +112,12 @@ def _verify_slack_signature(headers: dict[str, str], body: str) -> bool:
     if not timestamp or not signature:
         return False
 
-    if abs(time.time() - int(timestamp)) > 60 * 5:
+    try:
+        timestamp_seconds = int(timestamp)
+    except ValueError:
+        return False
+
+    if abs(time.time() - timestamp_seconds) > 60 * 5:
         return False
 
     basestring = f"v0:{timestamp}:{body}"
