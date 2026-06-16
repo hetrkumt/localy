@@ -25,6 +25,6 @@ resource "kubernetes_config_map_v1" "grafana_dashboards" {
 
   # 주의: 이 ConfigMap은 관제탑(monitoring 네임스페이스)이 존재해야 생성 가능합니다.
   depends_on = [
-    helm_release.kube_prometheus_stack
+    kubernetes_namespace_v1.monitoring,
   ]
 }

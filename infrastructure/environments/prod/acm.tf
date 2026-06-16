@@ -7,8 +7,8 @@
 
 # 1. AWS ACM에 feifo.click 및 하위 와일드카드 도메인(*.feifo.click) 인증서 발급 요청
 resource "aws_acm_certificate" "prod_cert" {
-  domain_name               = "feifo.click"
-  subject_alternative_names = ["*.feifo.click"]
+  domain_name               = var.base_domain
+  subject_alternative_names = ["*.${var.base_domain}"]
   validation_method         = "DNS" # Route 53을 통한 DNS-01 검증 방식 선택
 
   tags = {

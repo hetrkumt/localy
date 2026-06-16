@@ -1,7 +1,7 @@
 # 🛡️ Phase 1: Cert-Manager IAM Role 및 ServiceAccount 구성
 
 data "aws_route53_zone" "prod_zone" {
-  name         = "feifo.click." # 지휘관님의 실제 도메인 (끝에 마침표 필수)
+  name         = "${var.base_domain}." # 지휘관님의 실제 도메인 (끝에 마침표 필수)
   private_zone = false
 }
 

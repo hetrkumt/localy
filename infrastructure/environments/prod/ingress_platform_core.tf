@@ -52,7 +52,7 @@ resource "kubernetes_ingress_v1" "platform_ingress" {
     # ❌ [리드 아키텍트 지시] 기존 tls {} 블록 전면 삭제 (ALB는 K8s Secret을 읽을 수 없음)
 
     rule {
-      host = "feifo.click" # 도메인 명시하여 해당 트래픽 수신
+      host = var.base_domain # 도메인 명시하여 해당 트래픽 수신
       http {
         path {
           path      = "/"
@@ -72,7 +72,7 @@ resource "kubernetes_ingress_v1" "platform_ingress" {
 
   # [의존성 제어] ALB 컨트롤러와 타겟 애플리케이션 서비스가 먼저 준비되어 있어야 정문을 개통합니다.
   depends_on = [
-    helm_release.aws_load_balancer_controller,
-    kubernetes_service_v1.target_svc
+    kubernetes_service_account_v1.aws_lbc_sa,
+    kubernetes_service_v1.target_svc,
   ]
 }

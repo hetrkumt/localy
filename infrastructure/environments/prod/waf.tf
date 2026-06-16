@@ -39,7 +39,7 @@ resource "aws_wafv2_web_acl" "ingress_waf" {
               single_header { name = "host" }
             }
             positional_constraint = "EXACTLY"
-            search_string         = "grafana.feifo.click"
+            search_string         = "grafana.${var.base_domain}"
             text_transformation {
               priority = 0
               type     = "LOWERCASE"

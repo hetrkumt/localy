@@ -216,6 +216,6 @@ resource "kubernetes_role_binding_v1" "alarm_pipeline_alertmanager_secret_reader
   }
 
   depends_on = [
-    helm_release.kube_prometheus_stack,
+    kubernetes_namespace_v1.monitoring,
   ]
 }

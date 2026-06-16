@@ -12,59 +12,22 @@ terraform {
   required_version = ">= 1.0.0"
 
   backend "s3" {
-    bucket         = "feifo-prod-tf-state-backend"
-    key            = "eks-gitops/prod/network.tfstate"
-    region         = "ap-northeast-2"
-    #dynamodb_table = "feifo-prod-tf-locks"
-  }
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-    helm = {
-      source  = "hashicorp/helm"
-      version = "~> 2.12"
-    }
-    kubectl = {
-      source  = "gavinbunney/kubectl"
-      version = ">= 1.14.0"
-    }
-    kubernetes = {
-      source  = "hashicorp/kubernetes"
-      version = "~> 3.0"
-    }
-    http = {
-      source  = "hashicorp/http"
-      version = "~> 3.0"
-    }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.0"
-    }
-    archive = {
-      source  = "hashicorp/archive"
-      version = "~> 2.0"
-    }
+    bucket       = "feifo-prod-tf-state-backend"
+    key          = "eks-gitops/prod/network.tfstate"
+    region       = "ap-northeast-2"
+    use_lockfile = true
   }
 }
 
 # --------------------------------------------------------
-# [2단계] AWS Provider 설정
-# --------------------------------------------------------
-provider "aws" {
-  region = "ap-northeast-2"
-}
-
-# --------------------------------------------------------
-# [3단계] 네트워크(VPC) 모듈 호출
+# [2단계] 네트워크(VPC) 모듈 호출
 # --------------------------------------------------------
 module "network" {
   source = "../../modules/network"
 
   env_name         = "prod"
-  vpc_cidr         = "10.0.0.0/16"
+  cluster_name     = var.cluster_name
+  vpc_cidr         = var.vpc_cidr_block
   azs              = ["ap-northeast-2a", "ap-northeast-2b", "ap-northeast-2c"]
   public_subnets   = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
   private_subnets  = ["10.0.11.0/24", "10.0.12.0/24", "10.0.13.0/24"]
@@ -99,7 +62,7 @@ locals {
 # --------------------------------------------------------
 module "eks" {
   source       = "../../modules/eks"
-  cluster_name = "prod-eks"
+  cluster_name = var.cluster_name
   vpc_id       = module.network.vpc_id
   admin_ip     = var.admin_ip
   subnet_ids   = module.network.private_subnets
@@ -122,7 +85,7 @@ module "eks" {
 }
 
 # --------------------------------------------------------
-# [6단계] Kubernetes / Helm / kubectl Provider (module.eks Output 직접 참조)
+# [6단계] Kubernetes / kubectl Provider (module.eks Output 직접 참조)
 # --------------------------------------------------------
 # data "aws_eks_cluster"는 클러스터 생성 전 plan/apply 시 'couldn't find resource'를
 # 유발하므로 사용하지 않습니다. endpoint/CA는 module.eks output에서 가져옵니다.
@@ -142,19 +105,6 @@ provider "kubernetes" {
   }
 }
 
-provider "helm" {
-  kubernetes {
-    host                   = module.eks.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", data.aws_region.current.name]
-    }
-  }
-}
-
 provider "kubectl" {
   host                   = module.eks.cluster_endpoint
   cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
@@ -165,57 +115,5 @@ provider "kubectl" {
     command     = "aws"
     # ⚠️ 기존 코드에서 리전이 누락되어 에러가 났던 kubectl 블록에도 동일하게 적용합니다.
     args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", data.aws_region.current.name]
-  }
-}
-
-# --------------------------------------------------------
-# [7단계] Karpenter Controller (뇌) 이식 — Helm Release
-# --------------------------------------------------------
-resource "helm_release" "karpenter" {
-  namespace        = "kube-system"
-  name             = "karpenter"
-  repository       = "oci://public.ecr.aws/karpenter"
-  chart            = "karpenter"
-  version          = "0.37.0"
-  create_namespace = true
-
-  depends_on = [
-    module.eks,
-    helm_release.kube_prometheus_stack
-  ]
-
-  set {
-    name  = "settings.clusterName"
-    value = module.eks.cluster_name
-  }
-
-  set {
-    name  = "settings.clusterEndpoint"
-    value = module.eks.cluster_endpoint
-  }
-
-  set {
-    name  = "settings.interruptionQueue"
-    value = module.eks.karpenter_interruption_queue_name
-  }
-
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = module.eks.karpenter_controller_role_arn
-  }
-
-  set {
-    name  = "nodeSelector.role"
-    value = "system"
-  }
-
-  set {
-    name  = "serviceMonitor.enabled"
-    value = "true"
-  }
-
-  set {
-    name  = "serviceMonitor.additionalLabels.release"
-    value = "kube-prometheus-stack"
   }
 }

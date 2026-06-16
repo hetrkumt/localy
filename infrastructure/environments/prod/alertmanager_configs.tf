@@ -12,7 +12,7 @@ resource "kubectl_manifest" "alertmanager_config_alarm_pipeline" {
   })
 
   depends_on = [
-    helm_release.kube_prometheus_stack,
+    kubernetes_namespace_v1.monitoring,
     aws_sns_topic.chatops_alarm_pipeline,
   ]
 }

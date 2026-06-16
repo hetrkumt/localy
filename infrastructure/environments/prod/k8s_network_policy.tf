@@ -8,7 +8,7 @@
 
 locals {
   # main.tf module.network vpc_cidr 와 동기화
-  vpc_cidr = "10.0.0.0/16"
+  vpc_cidr = var.vpc_cidr_block
 }
 
 # ---------------------------------------------------------------------------
@@ -114,8 +114,7 @@ resource "kubernetes_network_policy_v1" "loki_ingress_zero_trust" {
   }
 
   depends_on = [
-    helm_release.loki,
-    helm_release.fluent_bit,
+    module.eks,
   ]
 }
 
@@ -196,8 +195,7 @@ resource "kubernetes_network_policy_v1" "fluent_bit_egress_zero_trust" {
     }
   }
   depends_on = [
-    helm_release.loki,
-    helm_release.fluent_bit,
+    module.eks,
   ]
 }
 
@@ -392,6 +390,6 @@ resource "kubernetes_network_policy_v1" "alertmanager_zero_trust" {
   }
 
   depends_on = [
-    helm_release.kube_prometheus_stack,
+    kubernetes_namespace_v1.monitoring,
   ]
 }

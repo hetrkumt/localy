@@ -28,7 +28,7 @@ resource "kubectl_manifest" "karpenter_node_class" {
 
   # [중요] 카펜터 컨트롤러(뇌)가 먼저 설치된 이후에 이 CRD를 배포해야 에러가 나지 않습니다.
   depends_on = [
-    helm_release.karpenter
+    module.eks,
   ]
 }
 

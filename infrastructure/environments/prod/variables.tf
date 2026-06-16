@@ -3,6 +3,29 @@ variable "env_name" {
   default = "prod"
 }
 
+variable "base_domain" {
+  type        = string
+  default     = "feifo.click"
+  description = "Base domain name"
+}
+
+variable "cluster_name" {
+  type        = string
+  default     = "prod-eks"
+  description = "EKS cluster name"
+}
+
+variable "vpc_cidr_block" {
+  type        = string
+  default     = "10.0.0.0/16"
+  description = "VPC CIDR block"
+
+  validation {
+    condition     = can(regex("^([0-9]{1,3}\\.){3}[0-9]{1,3}/[0-9]{1,2}$", var.vpc_cidr_block))
+    error_message = "vpc_cidr_block must be a valid IPv4 CIDR (e.g. 10.0.0.0/16)."
+  }
+}
+
 variable "admin_ip" {
   description = "EKS Control Plane에 접근할 관리자의 공인 IP (CIDR 형식). apply 시점 공인 IP와 함께 public_access_cidrs에 병합됩니다."
   type        = string
@@ -28,6 +51,7 @@ variable "s3_bucket_policy_bypass_principal_arns" {
 variable "chatops_sre_slack_user_ids" {
   description = "JIT log access authorized SRE Slack user IDs (e.g. [\"U01ABCDEF\"]). Injected into auth Lambda env."
   type        = list(string)
+  default     = ["U01ABCDEF"]
 
   validation {
     condition     = length(var.chatops_sre_slack_user_ids) > 0

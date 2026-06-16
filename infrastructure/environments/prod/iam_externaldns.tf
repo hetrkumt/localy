@@ -8,88 +8,55 @@
 # 1. ExternalDNS가 AWS Route53에 접근할 수 있는 최소 권한 Policy 정의
 
 data "aws_route53_zone" "externaldns_zone" {
-  name         = "feifo.click."
+  name         = "${var.base_domain}."
   private_zone = false
 }
 
-resource "aws_iam_policy" "prod_externaldns_route53_policy" {
-  name        = "prod-externaldns-route53-policy"
-  path        = "/"
-  description = "Least privilege Route53 policy for ExternalDNS in prod"
-
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Sid    = "AllowListHostedZones"
-        Effect = "Allow"
-        Action = [
-          "route53:ListHostedZones"
-        ]
-        Resource = "*"
-      },
-      {
-        Sid    = "AllowListResourceRecordSets"
-        Effect = "Allow"
-        Action = [
-          "route53:ListResourceRecordSets"
-        ]
-        Resource = "arn:aws:route53:::hostedzone/${data.aws_route53_zone.externaldns_zone.zone_id}"
-      },
-      {
-        Sid    = "AllowChangeResourceRecordSets"
-        Effect = "Allow"
-        Action = [
-          "route53:ChangeResourceRecordSets"
-        ]
-        Resource = "arn:aws:route53:::hostedzone/${data.aws_route53_zone.externaldns_zone.zone_id}"
-      }
-    ]
-  })
-}
-
-# 2. OIDC Trust Relationship: 오직 kube-system/external-dns-sa만 Role Assume 가능
-data "aws_iam_policy_document" "prod_externaldns_assume_role_policy" {
+data "aws_iam_policy_document" "external_dns" {
   statement {
-    actions = ["sts:AssumeRoleWithWebIdentity"]
-    effect  = "Allow"
+    sid    = "AllowListHostedZones"
+    effect = "Allow"
+    actions = [
+      "route53:ListHostedZones"
+    ]
+    resources = ["*"]
+  }
 
-    principals {
-      type        = "Federated"
-      identifiers = [module.eks.oidc_provider_arn]
-    }
+  statement {
+    sid    = "AllowListResourceRecordSets"
+    effect = "Allow"
+    actions = [
+      "route53:ListResourceRecordSets"
+    ]
+    resources = ["arn:aws:route53:::hostedzone/${data.aws_route53_zone.externaldns_zone.zone_id}"]
+  }
 
-    condition {
-      test     = "StringEquals"
-      variable = "${replace(module.eks.cluster_oidc_issuer_url, "https://", "")}:sub"
-      values   = ["system:serviceaccount:kube-system:external-dns-sa"]
-    }
-
-    condition {
-      test     = "StringEquals"
-      variable = "${replace(module.eks.cluster_oidc_issuer_url, "https://", "")}:aud"
-      values   = ["sts.amazonaws.com"]
-    }
+  statement {
+    sid    = "AllowChangeResourceRecordSets"
+    effect = "Allow"
+    actions = [
+      "route53:ChangeResourceRecordSets"
+    ]
+    resources = ["arn:aws:route53:::hostedzone/${data.aws_route53_zone.externaldns_zone.zone_id}"]
   }
 }
 
-# 3. ExternalDNS IRSA 전용 IAM Role 생성
-resource "aws_iam_role" "prod_externaldns_irsa_role" {
-  name               = "prod-externaldns-irsa-role"
-  assume_role_policy = data.aws_iam_policy_document.prod_externaldns_assume_role_policy.json
-}
+module "irsa_externaldns" {
+  source = "../../modules/irsa"
 
-# 4. IAM Role에 최소 권한 Policy 결합
-resource "aws_iam_role_policy_attachment" "prod_externaldns_policy_attach" {
-  role       = aws_iam_role.prod_externaldns_irsa_role.name
-  policy_arn = aws_iam_policy.prod_externaldns_route53_policy.arn
+  role_name           = "prod-externaldns-irsa-role"
+  namespace           = "kube-system"
+  serviceaccount_name = "external-dns-sa"
+  oidc_provider_arn   = module.eks.oidc_provider_arn
+  oidc_provider_url   = replace(module.eks.cluster_oidc_issuer_url, "https://", "")
+  custom_policy_json  = data.aws_iam_policy_document.external_dns.json
 }
 
 # 5. Kubernetes Service Account 생성 및 IAM Role 바인딩
 resource "kubernetes_service_account_v1" "external_dns_sa" {
   depends_on = [
     module.eks,
-    aws_iam_role_policy_attachment.prod_externaldns_policy_attach,
+    module.irsa_externaldns,
   ]
 
   metadata {
@@ -97,7 +64,7 @@ resource "kubernetes_service_account_v1" "external_dns_sa" {
     namespace = "kube-system"
 
     annotations = {
-      "eks.amazonaws.com/role-arn" = aws_iam_role.prod_externaldns_irsa_role.arn
+      "eks.amazonaws.com/role-arn" = module.irsa_externaldns.iam_role_arn
     }
   }
 }

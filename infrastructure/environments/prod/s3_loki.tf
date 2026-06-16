@@ -56,6 +56,14 @@ resource "aws_s3_bucket_object_lock_configuration" "loki_logs" {
     }
   }
 
+  depends_on = [
+    aws_s3_bucket_versioning.loki_logs,
+  ]
+}
+
+resource "aws_s3_bucket_lifecycle_configuration" "loki_logs" {
+  bucket = aws_s3_bucket.loki_logs.id
+
   # 2. [FinOps] Current Version — 90일 영구 소각, delete marker 청소 (IA 전환 없음)
   rule {
     id     = "current-version-expiration"
@@ -187,11 +195,7 @@ data "aws_iam_policy_document" "loki_logs" {
     sid    = "DenyS3AccessNotViaS3VpcEndpoint"
     effect = "Deny"
 
-    
-    
-    
-    
-    {
+    principals {
       type        = "*"
       identifiers = ["*"]
     }

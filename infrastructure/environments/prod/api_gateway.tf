@@ -60,12 +60,12 @@ resource "aws_lambda_permission" "chatops_jit_auth_apigw" {
 # Route 53 Custom Domain & ACM SSL 결속 (api.feifo.click)
 # ========================================================================
 data "aws_route53_zone" "primary" {
-  name         = "feifo.click."
+  name         = "${var.base_domain}."
   private_zone = false
 }
 
 resource "aws_acm_certificate" "chatops_jit_cert" {
-  domain_name       = "api.feifo.click"
+  domain_name       = "api.${var.base_domain}"
   validation_method = "DNS"
 
   lifecycle {
@@ -96,7 +96,7 @@ resource "aws_acm_certificate_validation" "chatops_jit_cert" {
 }
 
 resource "aws_apigatewayv2_domain_name" "chatops_jit" {
-  domain_name = "api.feifo.click"
+  domain_name = "api.${var.base_domain}"
 
   domain_name_configuration {
     certificate_arn = aws_acm_certificate_validation.chatops_jit_cert.certificate_arn

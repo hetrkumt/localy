@@ -154,6 +154,5 @@ resource "kubernetes_network_policy_v1" "kyverno_admission_ingress_zero_trust" {
   # 클러스터, 헬름차트가 모두 준비된 후 정책이 적용되도록 순서 보장
   depends_on = [
     module.eks,
-    helm_release.kyverno
   ]
 }
