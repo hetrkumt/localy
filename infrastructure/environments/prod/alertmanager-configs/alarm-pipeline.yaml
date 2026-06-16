@@ -1,0 +1,126 @@
+apiVersion: monitoring.coreos.com/v1alpha1
+kind: AlertmanagerConfig
+metadata:
+  name: alarm-pipeline
+  namespace: monitoring
+  labels:
+    alertmanagerconfig: alarm-pipeline
+    app.kubernetes.io/part-of: alarm-pipeline
+    managed-by: terraform
+spec:
+  # ---------------------------------------------------------------------------
+  # [Phase 3] Inhibition — Phase 2 Double-Fire 방어
+  # MemorySaturation(security-critical) 선행 시 CrashLoop / OOM 사후 알람 억제
+  # ---------------------------------------------------------------------------
+  inhibitRules:
+    - sourceMatch:
+        - name: alertname
+          matchType: "="
+          value: MemorySaturation
+        - name: severity
+          matchType: "="
+          value: security-critical
+      targetMatch:
+        - name: alertname
+          matchType: "="
+          value: KubePodCrashLooping
+      equal:
+        - namespace
+        - pod
+
+    - sourceMatch:
+        - name: alertname
+          matchType: "="
+          value: MemorySaturation
+        - name: severity
+          matchType: "="
+          value: security-critical
+      targetMatch:
+        - name: alertname
+          matchType: "="
+          value: PodOOMKilledConfirmed
+      equal:
+        - namespace
+        - pod
+
+  # ---------------------------------------------------------------------------
+  # [Phase 3] Routing — tier × severity 정적 티어링
+  # root: origin=alarm-pipeline only → chart default null receiver 유지
+  # ---------------------------------------------------------------------------
+  route:
+    receiver: sns-chatops
+    groupBy:
+      - alertname
+      - namespace
+      - tier
+      - cluster
+    groupWait: 30s
+    groupInterval: 5m
+    repeatInterval: 12h
+
+    matchers:
+      - name: origin
+        matchType: "="
+        value: alarm-pipeline
+
+    routes:
+      # 하이패스: security-critical (Tier 무관) — 즉시 발송
+      - receiver: sns-chatops
+        matchers:
+          - name: severity
+            matchType: "="
+            value: security-critical
+        groupWait: 0s
+        groupInterval: 1m
+        repeatInterval: 1h
+        continue: false
+
+      # 핵심 코어: tier=1
+      - receiver: sns-chatops
+        matchers:
+          - name: tier
+            matchType: "="
+            value: "1"
+        groupWait: 5s
+        groupInterval: 5m
+        repeatInterval: 4h
+        continue: false
+
+      # 일반 서비스: tier=2
+      - receiver: sns-chatops
+        matchers:
+          - name: tier
+            matchType: "="
+            value: "2"
+        groupWait: 30s
+        groupInterval: 10m
+        repeatInterval: 8h
+        continue: false
+
+      # 테스트/영수증: tier=3 — Daily Digest
+      - receiver: sns-chatops
+        matchers:
+          - name: tier
+            matchType: "="
+            value: "3"
+        groupWait: 30s
+        groupInterval: 24h
+        repeatInterval: 24h
+        continue: false
+
+  # ---------------------------------------------------------------------------
+  # [Phase 6] Receiver — SNS Decoupling (Slack 직결 소각 완료)
+  #   K8s UI 렌더링 책임 0 — __JIT_CTX__ 초경량 JSON만 SNS body에 실음
+  #   Pod IRSA (alarm-pipeline-sns-publisher) → sns:Publish
+  #   Downstream: Dispatch Lambda → Slack Block Kit 조립
+  # ---------------------------------------------------------------------------
+  receivers:
+    - name: sns-chatops
+      snsConfigs:
+        - topicARN: "${sns_topic_arn}"
+          sigv4:
+            region: "${aws_region}"
+          subject: '[{{ .Status | toUpper }}] {{ .CommonLabels.alertname }}'
+          attributes:
+            chatops_pipeline: "alarm-pipeline-jit-v1"
+          message: '__JIT_CTX__{"v":1,"status":"{{ .Status }}","groupKey":"{{ .GroupLabels.alertname }}-{{ .GroupLabels.namespace }}","groupLabels":{"alertname":"{{ .GroupLabels.alertname }}","namespace":"{{ .GroupLabels.namespace }}","tier":"{{ .GroupLabels.tier }}","cluster":"{{ .GroupLabels.cluster }}"},"commonLabels":{"alertname":"{{ .CommonLabels.alertname }}","severity":"{{ .CommonLabels.severity }}","tier":"{{ .CommonLabels.tier }}","namespace":"{{ .CommonLabels.namespace }}","cluster":"{{ .CommonLabels.cluster }}","origin":"{{ .CommonLabels.origin }}"},"commonAnnotations":{"summary":"{{ reReplaceAll "\n" "\\n" (reReplaceAll "\"" "\\\"" (reReplaceAll "\\\\" "\\\\" .CommonAnnotations.summary)) }}","description":"{{ reReplaceAll "\n" "\\n" (reReplaceAll "\"" "\\\"" (reReplaceAll "\\\\" "\\\\" .CommonAnnotations.description)) }}"},"alertCount":{{ len .Alerts }}}'

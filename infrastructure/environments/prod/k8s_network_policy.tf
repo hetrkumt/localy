@@ -200,3 +200,198 @@ resource "kubernetes_network_policy_v1" "fluent_bit_egress_zero_trust" {
     helm_release.fluent_bit,
   ]
 }
+
+# =============================================================================
+# [Frame 2 — DevSecOps] Alertmanager Zero-Trust NetworkPolicy (Ingress + Egress)
+# =============================================================================
+
+data "aws_network_interfaces" "alertmanager_sns_vpc_endpoint" {
+  filter {
+    name   = "vpc-endpoint-id"
+    values = [module.network.sns_vpc_endpoint_id]
+  }
+}
+
+data "aws_network_interfaces" "alertmanager_sts_vpc_endpoint" {
+  filter {
+    name   = "vpc-endpoint-id"
+    values = [module.network.sts_vpc_endpoint_id]
+  }
+}
+
+data "aws_network_interface" "alertmanager_sns_vpc_endpoint" {
+  count = length(data.aws_network_interfaces.alertmanager_sns_vpc_endpoint.ids)
+  id    = data.aws_network_interfaces.alertmanager_sns_vpc_endpoint.ids[count.index]
+}
+
+data "aws_network_interface" "alertmanager_sts_vpc_endpoint" {
+  count = length(data.aws_network_interfaces.alertmanager_sts_vpc_endpoint.ids)
+  id    = data.aws_network_interfaces.alertmanager_sts_vpc_endpoint.ids[count.index]
+}
+
+locals {
+  alertmanager_aws_vpce_cidrs = distinct(concat(
+    [for eni in data.aws_network_interface.alertmanager_sns_vpc_endpoint : "${eni.private_ip}/32"],
+    [for eni in data.aws_network_interface.alertmanager_sts_vpc_endpoint : "${eni.private_ip}/32"],
+  ))
+}
+
+resource "kubernetes_network_policy_v1" "alertmanager_zero_trust" {
+  metadata {
+    name      = "alertmanager-zero-trust"
+    namespace = "monitoring"
+    labels = {
+      "app.kubernetes.io/name"      = "alertmanager"
+      "app.kubernetes.io/component" = "network-policy"
+      "managed-by"                  = "terraform"
+    }
+  }
+
+  spec {
+    pod_selector {
+      match_labels = {
+        "app.kubernetes.io/name" = "alertmanager"
+      }
+    }
+
+    policy_types = ["Ingress", "Egress"]
+
+    # -----------------------------------------------------------------------
+    # [Ingress 1] Prometheus → Alertmanager (:9093)
+    # -----------------------------------------------------------------------
+    ingress {
+      from {
+        namespace_selector {
+          match_expressions {
+            key      = "kubernetes.io/metadata.name"
+            operator = "In"
+            values   = ["monitoring"]
+          }
+        }
+        pod_selector {
+          match_labels = {
+            "app.kubernetes.io/name"     = "prometheus"
+            "app.kubernetes.io/instance" = "kube-prometheus-stack"
+          }
+        }
+      }
+      ports {
+        protocol = "TCP"
+        port     = "9093"
+      }
+    }
+
+    # -----------------------------------------------------------------------
+    # [Ingress 2] Loki Ruler → Alertmanager (:9093)
+    # -----------------------------------------------------------------------
+    ingress {
+      from {
+        namespace_selector {
+          match_expressions {
+            key      = "kubernetes.io/metadata.name"
+            operator = "In"
+            values   = ["observability"]
+          }
+        }
+        pod_selector {
+          match_labels = {
+            "app.kubernetes.io/name" = "loki"
+          }
+        }
+      }
+      ports {
+        protocol = "TCP"
+        port     = "9093"
+      }
+    }
+
+    # -----------------------------------------------------------------------
+    # [Ingress & Egress 3] Alertmanager HA 멤버리스트 (TCP/UDP 9094)
+    # -----------------------------------------------------------------------
+    ingress {
+      from {
+        pod_selector {
+          match_labels = {
+            "app.kubernetes.io/name" = "alertmanager"
+          }
+        }
+      }
+      ports {
+        protocol = "TCP"
+        port     = "9094"
+      }
+      ports {
+        protocol = "UDP"
+        port     = "9094"
+      }
+    }
+
+    egress {
+      to {
+        pod_selector {
+          match_labels = {
+            "app.kubernetes.io/name" = "alertmanager"
+          }
+        }
+      }
+      ports {
+        protocol = "TCP"
+        port     = "9094"
+      }
+      ports {
+        protocol = "UDP"
+        port     = "9094"
+      }
+    }
+
+    # -----------------------------------------------------------------------
+    # [Egress 1] CoreDNS 이름 풀이 (UDP/TCP 53)
+    # -----------------------------------------------------------------------
+    egress {
+      to {
+        namespace_selector {
+          match_expressions {
+            key      = "kubernetes.io/metadata.name"
+            operator = "In"
+            values   = ["kube-system"]
+          }
+        }
+        pod_selector {
+          match_labels = {
+            "k8s-app" = "kube-dns"
+          }
+        }
+      }
+      ports {
+        protocol = "UDP"
+        port     = "53"
+      }
+      ports {
+        protocol = "TCP"
+        port     = "53"
+      }
+    }
+
+    # -----------------------------------------------------------------------
+    # [Egress 2] SNS/STS Interface VPC Endpoint ENIs only (HTTPS 443)
+    # -----------------------------------------------------------------------
+    egress {
+      dynamic "to" {
+        for_each = local.alertmanager_aws_vpce_cidrs
+        content {
+          ip_block {
+            cidr = to.value
+          }
+        }
+      }
+      ports {
+        protocol = "TCP"
+        port     = "443"
+      }
+    }
+  }
+
+  depends_on = [
+    helm_release.kube_prometheus_stack,
+  ]
+}

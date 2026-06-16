@@ -11,11 +11,11 @@ resource "aws_security_group" "node" {
   description = "EKS Worker Node Security Group"
   vpc_id      = var.vpc_id
 
-
   tags = {
     Name = "${var.cluster_name}-node-sg"
     # karpenter.sh/discovery 태그를 추가합니다.
     "karpenter.sh/discovery" = var.cluster_name # "prod-eks"로 매핑됨
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 }
 

@@ -1,0 +1,129 @@
+apiVersion: kyverno.io/v1
+kind: ClusterPolicy
+metadata:
+  name: protect-alertmanager-irsa-identity
+  annotations:
+    policies.kyverno.io/title: Protect Alertmanager IRSA Identity
+    policies.kyverno.io/category: DevSecOps
+    policies.kyverno.io/severity: high
+spec:
+  validationFailureAction: Enforce
+  failurePolicy: Fail
+  webhookTimeoutSeconds: 3
+  background: true
+  rules:
+    - name: deny-non-official-alertmanager-images
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - monitoring
+              operations:
+                - CREATE
+                - UPDATE
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.serviceAccountName || '' }}"
+            operator: Equals
+            value: alarm-pipeline-sns-publisher
+      validate:
+        message: >-
+          Pods with serviceAccountName 'alarm-pipeline-sns-publisher' must only
+          use authorized Alertmanager or config-reloader images. IRSA identity
+          hijacking is denied.
+        anyPattern:
+          - spec:
+              containers:
+                - image: "quay.io/prometheus/alertmanager:* | quay.io/prometheus-operator/prometheus-config-reloader:*"
+              =(initContainers):
+                - image: "quay.io/prometheus/alertmanager:* | quay.io/prometheus-operator/prometheus-config-reloader:*"
+    - name: deny-pinpoint-container-image-mismatch
+      match:
+        any:
+          - resources:
+              kinds:
+                - Pod
+              namespaces:
+                - monitoring
+              operations:
+                - CREATE
+                - UPDATE
+      preconditions:
+        all:
+          - key: "{{ request.object.spec.serviceAccountName || '' }}"
+            operator: Equals
+            value: alarm-pipeline-sns-publisher
+      validate:
+          message: Container name must match its authorized image (alertmanager or config-reloader only). IRSA identity hijacking is denied.
+          foreach:
+          # 1. alertmanager 이름인데 공식 이미지가 아닌 경우 차단
+          - list: request.object.spec.containers
+            deny:
+              conditions:
+                all:
+                - key: '{{ element.name }}'
+                  operator: Equals
+                  value: alertmanager
+                - key: '{{ element.image }}'
+                  operator: NotEquals
+                  value: quay.io/prometheus/alertmanager:*
+
+          # 2. config-reloader 이름인데 공식 이미지가 아닌 경우 차단
+          - list: request.object.spec.containers
+            deny:
+              conditions:
+                all:
+                - key: '{{ element.name }}'
+                  operator: Equals
+                  value: config-reloader
+                - key: '{{ element.image }}'
+                  operator: NotEquals
+                  value: quay.io/prometheus-operator/prometheus-config-reloader:*
+
+          # 3. 아예 허용되지 않은 엉뚱한 컨테이너 이름인 경우 차단
+          - list: request.object.spec.containers
+            deny:
+              conditions:
+                all:
+                - key: '{{ element.name }}'
+                  operator: NotIn
+                  value:
+                  - alertmanager
+                  - config-reloader
+
+          # 4. initContainers: alertmanager 이름인데 공식 이미지가 아닌 경우 차단
+          - list: request.object.spec.initContainers
+            deny:
+              conditions:
+                all:
+                - key: '{{ element.name }}'
+                  operator: Equals
+                  value: alertmanager
+                - key: '{{ element.image }}'
+                  operator: NotEquals
+                  value: quay.io/prometheus/alertmanager:*
+
+          # 5. initContainers: config-reloader 이름인데 공식 이미지가 아닌 경우 차단
+          - list: request.object.spec.initContainers
+            deny:
+              conditions:
+                all:
+                - key: '{{ element.name }}'
+                  operator: Equals
+                  value: config-reloader
+                - key: '{{ element.image }}'
+                  operator: NotEquals
+                  value: quay.io/prometheus-operator/prometheus-config-reloader:*
+
+          # 6. initContainers: 아예 허용되지 않은 엉뚱한 컨테이너 이름인 경우 차단
+          - list: request.object.spec.initContainers
+            deny:
+              conditions:
+                all:
+                - key: '{{ element.name }}'
+                  operator: NotIn
+                  value:
+                  - alertmanager
+                  - config-reloader

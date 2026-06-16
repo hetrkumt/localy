@@ -41,6 +41,8 @@ data "kubernetes_service_v1" "kubernetes_api" {
     name      = "kubernetes"
     namespace = "default"
   }
+  
+  depends_on = [module.eks]
 }
 
 locals {

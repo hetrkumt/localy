@@ -1,0 +1,186 @@
+﻿apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: alarm-pipeline-rules
+  namespace: monitoring
+  labels:
+    release: kube-prometheus-stack
+    app: kube-prometheus-stack
+    app.kubernetes.io/part-of: alarm-pipeline
+    managed-by: terraform
+spec:
+  groups:
+    # -------------------------------------------------------------------------
+    # [DevSecOps] OOM 선행 요격 — deriv(memory) 미분 탐지
+    # -------------------------------------------------------------------------
+    - name: alarm-pipeline.security.memory
+      rules:
+        - alert: MemorySaturation
+          expr: |
+            (
+              deriv(
+                container_memory_working_set_bytes{
+                container!="", container!="POD", image!=""
+                }[2m]
+              ) > 524288
+            )
+            and on (namespace, pod, container)
+            (
+              (
+                container_memory_working_set_bytes{container!="", container!="POD", image!=""}
+                / on (namespace, pod, container)
+                kube_pod_container_resource_limits{resource="memory", container!=""}
+              ) > 0.50
+            )
+            * on (namespace, pod) group_left(label_tier)
+            kube_pod_labels{label_tier="1"}
+            unless on (namespace)
+            kube_namespace_labels{label_tier="3"}
+          for: 0s
+          labels:
+            severity: security-critical
+            signal: MemorySaturation
+            tier: "1"
+            origin: alarm-pipeline
+          annotations:
+            summary: "[T1/SECURITY] Memory saturation detected on {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: >-
+              Working-set derivative exceeds 0.5 MiB/s with >50% of memory limit consumed.
+              Possible memory exhaustion attack or runaway allocation before OOMKill.
+
+        - alert: MemorySaturation
+          expr: |
+            (
+              deriv(
+                container_memory_working_set_bytes{
+                  container!="", container!="POD", image!=""
+                }[5m:1m]
+              ) > 2097152
+            )
+            and on (namespace, pod, container)
+            (
+              (
+                container_memory_working_set_bytes{container!="", container!="POD", image!=""}
+                / on (namespace, pod, container)
+                kube_pod_container_resource_limits{resource="memory", container!=""}
+              ) > 0.50
+            )
+            * on (namespace, pod) group_left(label_tier)
+            kube_pod_labels{label_tier="2"}
+          for: 3m
+          labels:
+            severity: security-critical
+            signal: MemorySaturation
+            tier: "2"
+            origin: alarm-pipeline
+          annotations:
+            summary: "[T2/SECURITY] Memory saturation detected on {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: >-
+              Working-set derivative exceeds 2 MiB/s (tier-2 flapping window: 3m).
+
+        - alert: MemorySaturation
+          expr: |
+            (
+              deriv(
+                container_memory_working_set_bytes{
+                  container!="", container!="POD", image!=""
+                }[5m:1m]
+              ) > 5242880
+            )
+            and on (namespace, pod, container)
+            (
+              (
+                container_memory_working_set_bytes{container!="", container!="POD", image!=""}
+                / on (namespace, pod, container)
+                kube_pod_container_resource_limits{resource="memory", container!=""}
+              ) > 0.50
+            )
+            * on (namespace, pod) group_left(label_tier)
+            kube_pod_labels{label_tier="3"}
+          for: 5m
+          labels:
+            severity: security-critical
+            signal: MemorySaturation
+            tier: "3"
+            origin: alarm-pipeline
+          annotations:
+            summary: "[T3/SECURITY] Memory saturation detected on {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: >-
+              Working-set derivative exceeds 5 MiB/s (tier-3 test flapping window: 5m).
+
+    # -------------------------------------------------------------------------
+    # [SRE] 운영 노이즈 vs 치명 장애 분리 — 재시작 스톰 (일반 에러)
+    # -------------------------------------------------------------------------
+    - name: alarm-pipeline.app.errors
+      rules:
+        - alert: PodRestartStorm
+          expr: |
+            rate(kube_pod_container_status_restarts_total{container!=""}[10m])
+            * on (namespace, pod) group_left(label_tier)
+            kube_pod_labels{label_tier="1"}
+            > 0.05
+          for: 1m
+          labels:
+            severity: critical
+            tier: "1"
+            origin: alarm-pipeline
+          annotations:
+            summary: "[T1] Pod restart storm on {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "Restart rate > 0.05/s over 10m window (for: 1m). Investigate before CrashLoopBackOff."
+
+        - alert: PodRestartStorm
+          expr: |
+            rate(kube_pod_container_status_restarts_total{container!=""}[10m])
+            * on (namespace, pod) group_left(label_tier)
+            kube_pod_labels{label_tier="2"}
+            > 0.08
+          for: 3m
+          labels:
+            severity: warning
+            tier: "2"
+            origin: alarm-pipeline
+          annotations:
+            summary: "[T2] Elevated pod restarts on {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "Restart rate > 0.08/s (for: 3m flapping filter)."
+
+        - alert: PodRestartStorm
+          expr: |
+            rate(kube_pod_container_status_restarts_total{container!=""}[10m])
+            * on (namespace, pod) group_left(label_tier)
+            kube_pod_labels{label_tier="3"}
+            > 0.15
+          for: 5m
+          labels:
+            severity: info
+            tier: "3"
+            origin: alarm-pipeline
+          annotations:
+            summary: "[T3/TEST] Pod restart spike on {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: "Test-tier noise filter: for 5m, threshold 0.15/s."
+
+    # -------------------------------------------------------------------------
+    # [DevSecOps] 사후 확인 — OOMKilled
+    # -------------------------------------------------------------------------
+    - name: alarm-pipeline.security.post-oom
+      rules:
+        - alert: PodOOMKilledConfirmed
+          expr: |
+            (
+              kube_pod_container_status_last_terminated_reason{reason="OOMKilled", container!=""}
+              and on (namespace, pod, container)
+              increase(kube_pod_container_status_restarts_total{container!=""}[30m]) > 0
+            )
+            * on (namespace, pod) group_left(label_tier)
+            kube_pod_labels{label_tier=~"1|2"}
+            > 0
+          for: 1m
+          labels:
+            severity: critical
+            signal: OOMKilled
+            tier: "{{ $labels.label_tier }}"
+            origin: alarm-pipeline
+          annotations:
+            summary: "[T{{ $labels.label_tier }}] OOMKilled confirmed on {{ $labels.namespace }}/{{ $labels.pod }}"
+            description: >-
+              Post-fact OOM confirmation. Pair with MemorySaturation for pre-OOM timeline.
+              Alertmanager should inhibit if MemorySaturation already fired on same pod.

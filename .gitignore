@@ -51,3 +51,6 @@ ion:*
 # ==========================================
 # 로컬 스크립트 폴더 전체 무시
 local_scripts/
+
+# Lambda placeholder zip (terraform archive_file 생성물)
+**/.artifacts/
