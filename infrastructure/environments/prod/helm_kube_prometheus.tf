@@ -383,7 +383,7 @@ resource "helm_release" "kube_prometheus_stack" {
                   name = local.alertmanager_cluster_tls_secret_name
                   key  = "tls.key"
                 }
-                client_ca = {
+                clientCA = {
                   secret = {
                     name = local.alertmanager_cluster_tls_secret_name
                     key  = "ca.crt"

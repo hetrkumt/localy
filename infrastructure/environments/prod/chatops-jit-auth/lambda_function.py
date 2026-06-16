@@ -84,6 +84,9 @@ def _post_to_slack_url(response_url: str, text: str) -> None:
     """슬랙이 허용한 비밀 통로(response_url)로 진짜 링크 알맹이를 쏘아 보내는 무전기 함수"""
     if not response_url:
         return
+    if not response_url.startswith("https://"):
+        logger.warning("Rejecting non-HTTPS response_url")
+        return
         
     payload = {
         "response_type": "ephemeral",
