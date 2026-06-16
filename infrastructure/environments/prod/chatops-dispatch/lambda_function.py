@@ -228,7 +228,7 @@ def _build_block_kit(ctx: dict[str, Any]) -> dict[str, Any]:
                 {"type": "mrkdwn", "text": f"*Namespace:*\n`{namespace}`"},
                 {"type": "mrkdwn", "text": f"*Cluster:*\n`{cluster}`"},
                 {"type": "mrkdwn", "text": f"*Alert Count:*\n{alert_count}"},
-                {"type": "mrkdwn", "text": f"*Pipeline:*\nalarm-pipeline-jit-v1"},
+                {"type": "mrkdwn", "text": "*Pipeline:*\nalarm-pipeline-jit-v1"},
             ],
         },
         {
@@ -302,6 +302,8 @@ def _build_fallback_payload(raw_message: str) -> dict[str, Any]:
 
 def _post_slack_payload(payload: dict[str, Any]) -> None:
     webhook_url = _get_slack_webhook_url()
+    if not webhook_url.startswith("https://"):
+        raise ValueError("Slack webhook URL must use https scheme")
     body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
 
     for attempt in range(1, SLACK_POST_MAX_ATTEMPTS + 1):

@@ -36,7 +36,7 @@ data "aws_iam_policy_document" "alarm_pipeline_sns_assume" {
     condition {
       test     = "StringEquals"
       variable = "${replace(module.eks.cluster_oidc_issuer_url, "https://", "")}:sub"
-      values   = ["system:serviceaccount:monitoring:alarm-pipeline-sns-publisher"]
+      values   = ["system:serviceaccount:monitoring:${local.alarm_pipeline_alertmanager_sa_name}"]
     }
 
     condition {

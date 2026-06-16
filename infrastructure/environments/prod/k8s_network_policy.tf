@@ -204,8 +204,36 @@ resource "kubernetes_network_policy_v1" "fluent_bit_egress_zero_trust" {
 # =============================================================================
 # [Frame 2 — DevSecOps] Alertmanager Zero-Trust NetworkPolicy (Ingress + Egress)
 # =============================================================================
-data "aws_vpc" "prod" {
-  id = module.network.vpc_id
+
+data "aws_network_interfaces" "alertmanager_sns_vpc_endpoint" {
+  filter {
+    name   = "vpc-endpoint-id"
+    values = [module.network.sns_vpc_endpoint_id]
+  }
+}
+
+data "aws_network_interfaces" "alertmanager_sts_vpc_endpoint" {
+  filter {
+    name   = "vpc-endpoint-id"
+    values = [module.network.sts_vpc_endpoint_id]
+  }
+}
+
+data "aws_network_interface" "alertmanager_sns_vpc_endpoint" {
+  count = length(data.aws_network_interfaces.alertmanager_sns_vpc_endpoint.ids)
+  id    = data.aws_network_interfaces.alertmanager_sns_vpc_endpoint.ids[count.index]
+}
+
+data "aws_network_interface" "alertmanager_sts_vpc_endpoint" {
+  count = length(data.aws_network_interfaces.alertmanager_sts_vpc_endpoint.ids)
+  id    = data.aws_network_interfaces.alertmanager_sts_vpc_endpoint.ids[count.index]
+}
+
+locals {
+  alertmanager_aws_vpce_cidrs = distinct(concat(
+    [for eni in data.aws_network_interface.alertmanager_sns_vpc_endpoint : "${eni.private_ip}/32"],
+    [for eni in data.aws_network_interface.alertmanager_sts_vpc_endpoint : "${eni.private_ip}/32"],
+  ))
 }
 
 resource "kubernetes_network_policy_v1" "alertmanager_zero_trust" {
@@ -345,12 +373,15 @@ resource "kubernetes_network_policy_v1" "alertmanager_zero_trust" {
     }
 
     # -----------------------------------------------------------------------
-    # [Egress 2] AWS SNS/STS VPC 통신 (VPC CIDR HTTPS 443)
+    # [Egress 2] SNS/STS Interface VPC Endpoint ENIs only (HTTPS 443)
     # -----------------------------------------------------------------------
     egress {
-      to {
-        ip_block {
-          cidr = data.aws_vpc.prod.cidr_block
+      dynamic "to" {
+        for_each = local.alertmanager_aws_vpce_cidrs
+        content {
+          ip_block {
+            cidr = to.value
+          }
         }
       }
       ports {

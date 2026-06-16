@@ -105,7 +105,7 @@ resource "aws_launch_template" "node" {
   metadata_options {
     http_endpoint               = "enabled"
     http_tokens                 = "required"
-    http_put_response_hop_limit = 2
+    http_put_response_hop_limit = 1
   }
 
   # 노드 인스턴스 자체에 생성될 태그 정의

@@ -58,7 +58,10 @@ def _get_whitelist() -> set[str]:
 
 
 def _presign_expiry_seconds() -> int:
-    raw = int(os.environ.get("PRESIGNED_URL_EXPIRY_SECONDS", str(MAX_PRESIGN_EXPIRY_SECONDS)))
+    try:
+        raw = int(os.environ.get("PRESIGNED_URL_EXPIRY_SECONDS", str(MAX_PRESIGN_EXPIRY_SECONDS)))
+    except ValueError:
+        raw = MAX_PRESIGN_EXPIRY_SECONDS
     return min(max(raw, MIN_PRESIGN_EXPIRY_SECONDS), MAX_PRESIGN_EXPIRY_SECONDS)
 
 

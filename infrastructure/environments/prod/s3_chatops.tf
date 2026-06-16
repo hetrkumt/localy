@@ -178,6 +178,110 @@ data "aws_iam_policy_document" "chatops_alarm_dump" {
   }
 
   statement {
+    sid    = "DenyAlarmPipelinePutObjectNonKmsEncryption"
+    effect = "Deny"
+
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.alarm_pipeline_lambda.arn]
+    }
+
+    actions = ["s3:PutObject"]
+
+    resources = ["${aws_s3_bucket.chatops_alarm_dump.arn}/*"]
+
+    condition {
+      test     = "Null"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["false"]
+    }
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["aws:kms"]
+    }
+  }
+
+  statement {
+    sid    = "DenyAlarmPipelinePutObjectWrongKmsKey"
+    effect = "Deny"
+
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.alarm_pipeline_lambda.arn]
+    }
+
+    actions = ["s3:PutObject"]
+
+    resources = ["${aws_s3_bucket.chatops_alarm_dump.arn}/*"]
+
+    condition {
+      test     = "Null"
+      variable = "s3:x-amz-server-side-encryption-aws-kms-key-id"
+      values   = ["false"]
+    }
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:x-amz-server-side-encryption-aws-kms-key-id"
+      values   = [aws_kms_key.chatops_s3.arn]
+    }
+  }
+
+  statement {
+    sid    = "DenyDispatchPutObjectNonKmsEncryption"
+    effect = "Deny"
+
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.chatops_dispatch_lambda.arn]
+    }
+
+    actions = ["s3:PutObject"]
+
+    resources = ["${aws_s3_bucket.chatops_alarm_dump.arn}/forensic/*"]
+
+    condition {
+      test     = "Null"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["false"]
+    }
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:x-amz-server-side-encryption"
+      values   = ["aws:kms"]
+    }
+  }
+
+  statement {
+    sid    = "DenyDispatchPutObjectWrongKmsKey"
+    effect = "Deny"
+
+    principals {
+      type        = "AWS"
+      identifiers = [aws_iam_role.chatops_dispatch_lambda.arn]
+    }
+
+    actions = ["s3:PutObject"]
+
+    resources = ["${aws_s3_bucket.chatops_alarm_dump.arn}/forensic/*"]
+
+    condition {
+      test     = "Null"
+      variable = "s3:x-amz-server-side-encryption-aws-kms-key-id"
+      values   = ["false"]
+    }
+
+    condition {
+      test     = "StringNotEquals"
+      variable = "s3:x-amz-server-side-encryption-aws-kms-key-id"
+      values   = [aws_kms_key.chatops_s3.arn]
+    }
+  }
+
+  statement {
     sid    = "StrictDenyNonChatOpsPrincipal"
     effect = "Deny"
 

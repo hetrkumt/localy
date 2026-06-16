@@ -45,7 +45,7 @@ spec:
           annotations:
             summary: "[T1/SECURITY] Memory saturation detected on {{ $labels.namespace }}/{{ $labels.pod }}"
             description: >-
-              Working-set derivative exceeds 1 MiB/s with >50% of memory limit consumed.
+              Working-set derivative exceeds 0.5 MiB/s with >50% of memory limit consumed.
               Possible memory exhaustion attack or runaway allocation before OOMKill.
 
         - alert: MemorySaturation
