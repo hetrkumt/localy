@@ -9,4 +9,4 @@ resource "kubectl_manifest" "prometheus_rule_alarm_pipeline" {
   depends_on = [
     kubernetes_namespace_v1.monitoring,
   ]
-}
+} 
