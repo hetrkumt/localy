@@ -37,13 +37,10 @@ resource "aws_iam_instance_profile" "karpenter_node" {
 # [🚨 NEW 핫픽스] EKS Access Entry 등록 (노드가 클러스터에 조인할 수 있게 허용)
 # ========================================================================
 resource "aws_eks_access_entry" "karpenter_node" {
-  # [수정] var.cluster_name 대신 실제 클러스터 리소스의 name 속성을 참조합니다.
   cluster_name  = aws_eks_cluster.this.name
   principal_arn = aws_iam_role.karpenter_node.arn
   type          = "EC2_LINUX"
 
-  # [추가] 클러스터의 인증 모드(authentication_mode) 전환이 100% 완료된 후 
-  # 이 엑세스 엔트리가 생성되도록 테라폼 엔진에게 순서를 강제합니다.
   depends_on = [
     aws_eks_cluster.this
   ]
@@ -100,7 +97,8 @@ resource "aws_iam_policy" "karpenter_controller" {
           "ec2:DescribeSpotPriceHistory",
           "pricing:GetProducts",
           "ssm:GetParameter",
-          "ec2:DescribeImages"
+          "ec2:DescribeImages",
+          "eks:DescribeCluster" # [핫픽스 3] Karpenter EKS 클러스터 API 조회 권한 추가
         ]
         Resource = "*"
       },
