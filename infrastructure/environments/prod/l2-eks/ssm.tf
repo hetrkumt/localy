@@ -198,3 +198,29 @@ resource "aws_ssm_parameter" "role_alarm_pipeline_sns_arn" {
     Layer       = "l2-eks"
   }
 }
+
+resource "aws_ssm_parameter" "role_eso_controller_arn" {
+  name        = local.ssm_paths["role_eso_controller_arn"]
+  type        = "String"
+  value       = module.eks.eso_controller_role_arn
+  description = "ESO Controller IRSA IAM Role ARN"
+
+  tags = {
+    Environment = var.env_name
+    ManagedBy   = "terraform"
+    Layer       = "l2-eks"
+  }
+}
+
+resource "aws_ssm_parameter" "role_workload_pod_identity_arn" {
+  name        = local.ssm_paths["role_workload_pod_identity_arn"]
+  type        = "String"
+  value       = module.eks.workload_pod_identity_role_arn
+  description = "Workload EKS Pod Identity IAM Role ARN"
+
+  tags = {
+    Environment = var.env_name
+    ManagedBy   = "terraform"
+    Layer       = "l2-eks"
+  }
+}

@@ -31,5 +31,7 @@ locals {
     role_ebs_csi_arn                  = "${local.ssm_prefix}/eks/roles/ebs-csi-arn"
     role_grafana_arn                  = "${local.ssm_prefix}/eks/roles/grafana-arn"
     role_alarm_pipeline_sns_arn       = "${local.ssm_prefix}/eks/roles/alarm-pipeline-sns-arn"
+    role_eso_controller_arn           = "${local.ssm_prefix}/eks/roles/eso-controller-arn"
+    role_workload_pod_identity_arn    = "${local.ssm_prefix}/eks/roles/workload-pod-identity-arn"
   }
 }
