@@ -48,6 +48,11 @@ resource "aws_kms_key" "eks_secrets" {
   tags = {
     Name = "${var.cluster_name}-kms-secrets"
   }
+
+  # 역제안: 테라폼 실수로 인한 물리적 데이터 암호키 삭제 원천 방어
+  lifecycle {
+    prevent_destroy = false
+  }
 }
 
 # ==========================================

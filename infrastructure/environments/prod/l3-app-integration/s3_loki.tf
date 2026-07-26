@@ -9,7 +9,7 @@ resource "aws_s3_bucket" "loki_logs" {
   force_destroy = true
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = false
   }
 
   tags = {

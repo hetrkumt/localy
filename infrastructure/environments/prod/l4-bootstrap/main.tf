@@ -2,9 +2,9 @@ terraform {
   required_version = ">= 1.0.0"
 
   backend "s3" {
-    bucket         = "feifo-prod-tf-state-backend"
-    key            = "eks-gitops/prod/l4-bootstrap.tfstate"
-    region         = "ap-northeast-2"
+    bucket = "feifo-prod-tf-state-backend"
+    key    = "eks-gitops/prod/l4-bootstrap.tfstate"
+    region = "ap-northeast-2"
   }
 
   required_providers {
@@ -84,6 +84,9 @@ resource "helm_release" "argocd" {
   values = [
     yamlencode({
       configs = {
+        cm = {
+          "kustomize.buildOptions" = "--enable-helm"
+        }
         params = {
           "otlp.address" = ""
         }
@@ -101,7 +104,7 @@ resource "helm_release" "argocd_apps" {
   chart      = "argocd-apps"
   version    = "1.6.2" # ArgoCD Apps 차트 버전
   namespace  = "argocd"
-  
+
   # ArgoCD 핵심 컴포넌트(CRD 포함)가 생성된 이후에 실행되도록 의존성 부여
   depends_on = [helm_release.argocd]
 
@@ -114,7 +117,7 @@ resource "helm_release" "argocd_apps" {
           project   = "default"
           source = {
             repoURL        = "https://github.com/hetrkumt/localy-manifests.git" # 사용자님의 실제 원격 저장소 주소
-            targetRevision = "main" # 최초 push한 main 브랜치 적용
+            targetRevision = "main"                                             # 최초 push한 main 브랜치 적용
             path           = "argocd-apps/overlays/prod"
           }
           destination = {

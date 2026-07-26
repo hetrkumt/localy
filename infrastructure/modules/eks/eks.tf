@@ -70,7 +70,7 @@ resource "aws_eks_node_group" "this" {
 
   scaling_config {
     desired_size = 3 # Karpenter 및 애드온 가동 버퍼 확보를 위해 2대 HA 구성
-    max_size     = 4 
+    max_size     = 4
     min_size     = 2
   }
 
@@ -94,9 +94,9 @@ resource "aws_eks_node_group" "this" {
 # EKS 워커 노드용 시작 템플릿 (Launch Template)
 # ==========================================
 resource "aws_launch_template" "node" {
-  name_prefix   = "${var.cluster_name}-node-lt-"
-  description   = "Launch template for EKS worker nodes with custom security group"
-  
+  name_prefix = "${var.cluster_name}-node-lt-"
+  description = "Launch template for EKS worker nodes with custom security group"
+
   # 자동으로 최신 버전을 기본 버전으로 설정
   update_default_version = true
 

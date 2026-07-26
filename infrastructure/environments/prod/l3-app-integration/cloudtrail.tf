@@ -13,7 +13,7 @@ resource "aws_s3_bucket" "cloudtrail_logs" {
     ManagedBy   = "terraform"
     Purpose     = "cloudtrail-audit-logs"
   }
-   
+
   force_destroy = false
 }
 

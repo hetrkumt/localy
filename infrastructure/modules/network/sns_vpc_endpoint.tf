@@ -34,6 +34,17 @@ resource "aws_security_group_rule" "interface_vpc_endpoint_ingress_https" {
   security_group_id = aws_security_group.interface_vpc_endpoint.id
 }
 
+# [신규 추가] Secondary CIDR (EKS Pod 대역) 인바운드 허용
+resource "aws_security_group_rule" "interface_vpc_endpoint_ingress_https_secondary" {
+  type              = "ingress"
+  description       = "HTTPS from Secondary CIDR (Pods)"
+  from_port         = 443
+  to_port           = 443
+  protocol          = "tcp"
+  cidr_blocks       = [var.secondary_cidr]
+  security_group_id = aws_security_group.interface_vpc_endpoint.id
+}
+
 resource "aws_security_group_rule" "interface_vpc_endpoint_egress_all" {
   type              = "egress"
   description       = "Allow ENI return traffic"

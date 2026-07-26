@@ -22,7 +22,7 @@ resource "aws_wafv2_web_acl" "ingress_waf" {
   default_action {
     allow {}
   }
-  
+
   rule {
     name     = "Block-Unauthorized-Grafana-Access"
     priority = 0 # 최상단에 배치하여 WCU 연산 비용 최적화
@@ -101,8 +101,8 @@ resource "aws_wafv2_web_acl" "ingress_waf" {
       sampled_requests_enabled   = true
     }
   }
-  
-	visibility_config {
+
+  visibility_config {
     cloudwatch_metrics_enabled = true
     metric_name                = "prod-ingress-waf-metric"
     sampled_requests_enabled   = true

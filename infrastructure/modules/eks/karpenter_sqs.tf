@@ -13,7 +13,7 @@ resource "aws_sqs_queue" "karpenter_interruption" {
   }
 }
 
-# 2. EventBridge가 SQS에 메시지를 보낼 수 있도록 허용하는 정책 (우체부 출입증)
+# 2. EventBridge가 SQS에 메시지를 보낼 수 있도록 허용하는 정책 (보안 락다운 적용)
 data "aws_iam_policy_document" "karpenter_interruption_queue" {
   statement {
     sid    = "EventBridgeToSQS"
@@ -27,6 +27,14 @@ data "aws_iam_policy_document" "karpenter_interruption_queue" {
     principals {
       type        = "Service"
       identifiers = ["events.amazonaws.com"]
+    }
+    # 역제안 반영: 오직 본 EKS 클러스터용 Karpenter EventBridge Rule로부터의 발송만 허용
+    condition {
+      test     = "ArnLike"
+      variable = "aws:SourceArn"
+      values = [
+        "arn:aws:events:ap-northeast-2:${data.aws_caller_identity.current.account_id}:rule/${var.cluster_name}-karpenter-*"
+      ]
     }
   }
 }
@@ -107,4 +115,3 @@ resource "aws_cloudwatch_event_target" "aws_health_event" {
   target_id = "KarpenterInterruptionQueueTarget"
   arn       = aws_sqs_queue.karpenter_interruption.arn
 }
-

@@ -2,9 +2,9 @@ terraform {
   required_version = ">= 1.0.0"
 
   backend "s3" {
-    bucket         = "feifo-prod-tf-state-backend"
-    key            = "eks-gitops/prod/l2-eks.tfstate"
-    region         = "ap-northeast-2"
+    bucket = "feifo-prod-tf-state-backend"
+    key    = "eks-gitops/prod/l2-eks.tfstate"
+    region = "ap-northeast-2"
   }
 
   required_providers {
@@ -104,4 +104,21 @@ provider "kubernetes" {
     command     = "aws"
     args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name, "--region", data.aws_region.current.name]
   }
+}
+
+# --------------------------------------------------------
+# [무결성 핫픽스] Shared ALB -> EKS Node SG 통신 허용 체이닝
+# --------------------------------------------------------
+data "aws_security_group" "shared_alb" {
+  name = "prod-shared-alb-sg"
+}
+
+resource "aws_security_group_rule" "node_ingress_shared_alb" {
+  type                     = "ingress"
+  from_port                = 0
+  to_port                  = 65535
+  protocol                 = "tcp"
+  source_security_group_id = data.aws_security_group.shared_alb.id
+  security_group_id        = module.eks.node_security_group_id
+  description              = "Allow all TCP traffic from Shared ALB to EKS Nodes for TargetGroupBinding health checks and routing"
 }
