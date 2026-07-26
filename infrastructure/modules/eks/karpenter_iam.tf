@@ -72,21 +72,18 @@ resource "aws_iam_role" "karpenter_controller" {
 
 resource "aws_iam_policy" "karpenter_controller" {
   name        = "${var.cluster_name}-karpenter-controller-policy"
-  description = "IAM Policy for Karpenter Controller"
+  description = "IAM Policy for Karpenter Controller with Least Privilege"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
+      # ① 리소스 수준 권한을 지원하지 않는 EC2 Describe/Pricing 액션 (Resource: "*")
       {
-        Sid    = "AllowEC2Management"
+        Sid    = "AllowEC2ReadAndDescribe"
         Effect = "Allow"
         Action = [
           "ec2:CreateLaunchTemplate",
           "ec2:CreateFleet",
-          "ec2:RunInstances",
-          "ec2:CreateTags",
-          "ec2:TerminateInstances",
-          "ec2:DeleteLaunchTemplate",
           "ec2:DescribeLaunchTemplates",
           "ec2:DescribeInstances",
           "ec2:DescribeSecurityGroups",
@@ -98,16 +95,71 @@ resource "aws_iam_policy" "karpenter_controller" {
           "pricing:GetProducts",
           "ssm:GetParameter",
           "ec2:DescribeImages",
-          "eks:DescribeCluster" # [핫픽스 3] Karpenter EKS 클러스터 API 조회 권한 추가
+          "eks:DescribeCluster"
         ]
         Resource = "*"
       },
+      # ② [핵심 제약사항 1] ec2:RunInstances 리소스 제한 (서브넷 & 보안그룹 락다운)
+      {
+        Sid    = "AllowKarpenterRunInstancesRestrictedSubnet"
+        Effect = "Allow"
+        Action = "ec2:RunInstances"
+        Resource = [
+          # 오직 EKS에 할당된 10 대역(private_subnets) 서브넷 ARN만 허용
+          for id in var.subnet_ids : "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:subnet/${id}"
+        ]
+      },
+      {
+        Sid    = "AllowKarpenterRunInstancesRestrictedSgAndInstance"
+        Effect = "Allow"
+        Action = "ec2:RunInstances"
+        Resource = [
+          # 오직 1차 타격에서 생성된 EKS Node Security Group만 허용
+          aws_security_group.node.arn,
+          # 생성되는 인스턴스, 볼륨, 네트워크 인터페이스 범위 제한
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:instance/*",
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:volume/*",
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:network-interface/*"
+        ]
+      },
+      {
+        Sid    = "AllowKarpenterRunInstancesGlobalImagesAndTemplates"
+        Effect = "Allow"
+        Action = "ec2:RunInstances"
+        Resource = [
+          # 특정 ARN을 특정하기 어려운 글로벌 자원
+          "arn:aws:ec2:ap-northeast-2::image/*",
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:launch-template/*",
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:fleet/*",
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:spot-instances-request/*"
+        ]
+      },
+      # ③ 인스턴스 종료 및 태깅 권한 제한 (본인 계정 내 인스턴스만 제어 가능)
+      {
+        Sid    = "AllowKarpenterInstanceTerminationAndTagging"
+        Effect = "Allow"
+        Action = [
+          "ec2:CreateTags",
+          "ec2:TerminateInstances",
+          "ec2:DeleteLaunchTemplate"
+        ]
+        Resource = [
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:instance/*",
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:launch-template/*",
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:fleet/*",
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:spot-instances-request/*",
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:volume/*",
+          "arn:aws:ec2:ap-northeast-2:${data.aws_caller_identity.current.account_id}:network-interface/*"
+        ]
+      },
+      # ④ IAM PassRole 제한
       {
         Sid      = "AllowPassRole"
         Effect   = "Allow"
         Action   = "iam:PassRole"
         Resource = aws_iam_role.karpenter_node.arn
       },
+      # ⑤ SQS Interruption Queue 읽기/쓰기 권한 제한
       {
         Sid    = "AllowInterruptionQueue"
         Effect = "Allow"
@@ -119,6 +171,7 @@ resource "aws_iam_policy" "karpenter_controller" {
         ]
         Resource = aws_sqs_queue.karpenter_interruption.arn
       },
+      # ⑥ 인스턴스 프로필 관리 권한
       {
         Sid    = "AllowInstanceProfileManagement"
         Effect = "Allow"

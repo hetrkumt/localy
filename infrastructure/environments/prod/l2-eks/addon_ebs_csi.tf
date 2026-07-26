@@ -1,9 +1,9 @@
 resource "aws_eks_addon" "ebs_csi" {
   cluster_name = module.eks.cluster_name
   addon_name   = "aws-ebs-csi-driver"
-  
+
   # [SRE 튜닝] EKS 클러스터 버전에 맞는 공식 안정화 버전을 장전합니다.
-  addon_version = "v1.31.0-eksbuild.1" 
+  addon_version = "v1.31.0-eksbuild.1"
 
   # Task 1에서 생성한 KMS 암호화 해제 권한이 포함된 명품 신분증(Role)을 바인딩합니다.
   service_account_role_arn = module.eks.ebs_csi_role_arn
@@ -37,10 +37,10 @@ resource "kubernetes_storage_class_v1" "gp3" {
   metadata {
     name = "gp3"
   }
-  
+
   storage_provisioner = "ebs.csi.aws.com"
   volume_binding_mode = "WaitForFirstConsumer"
-  
+
   parameters = {
     type = "gp3"
   }

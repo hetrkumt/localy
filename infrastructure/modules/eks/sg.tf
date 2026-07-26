@@ -14,7 +14,7 @@ resource "aws_security_group" "node" {
   tags = {
     Name = "${var.cluster_name}-node-sg"
     # karpenter.sh/discovery 태그를 추가합니다.
-    "karpenter.sh/discovery" = var.cluster_name # "prod-eks"로 매핑됨
+    "karpenter.sh/discovery"                    = var.cluster_name # "prod-eks"로 매핑됨
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 }

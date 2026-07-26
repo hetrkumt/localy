@@ -60,3 +60,18 @@ output "grafana_irsa_arn" {
   description = "Grafana 파드용 IRSA Role ARN (CloudWatch datasource)"
   value       = aws_iam_role.grafana.arn
 }
+
+output "eso_controller_role_arn" {
+  description = "ESO Controller IRSA Role ARN"
+  value       = aws_iam_role.eso_controller.arn
+}
+
+output "workload_pod_identity_role_arn" {
+  description = "Workload EKS Pod Identity Role ARN"
+  value       = aws_iam_role.workload_pod_identity.arn
+}
+
+output "node_security_group_id" {
+  description = "EKS Worker Node Security Group ID"
+  value       = aws_security_group.node.id
+}

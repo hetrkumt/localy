@@ -30,8 +30,8 @@ data "aws_iam_policy_document" "loki_s3" {
       "s3:PutObject",
       "s3:GetObject",
       "s3:DeleteObject",
-      "s3:ListMultipartUploadParts",  
-      "s3:AbortMultipartUpload"    
+      "s3:ListMultipartUploadParts",
+      "s3:AbortMultipartUpload"
     ]
     resources = [
       "arn:aws:s3:::${var.env_name}-eks-loki-logs-vault/*",
@@ -73,7 +73,7 @@ data "aws_iam_policy_document" "loki_assume_role" {
       test     = "StringEquals"
       variable = "${replace(module.eks.cluster_oidc_issuer_url, "https://", "")}:sub"
       # [핫픽스 2] OIDC 네임스페이스 매핑 불일치 패치 (observability -> loki)
-      values   = ["system:serviceaccount:loki:loki"]
+      values = ["system:serviceaccount:loki:loki"]
     }
     condition {
       test     = "StringEquals"

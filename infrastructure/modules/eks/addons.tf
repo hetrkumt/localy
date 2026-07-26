@@ -7,7 +7,9 @@ resource "aws_eks_addon" "vpc_cni" {
   cluster_name                = aws_eks_cluster.this.name
   addon_name                  = "vpc-cni"
   resolve_conflicts_on_create = "OVERWRITE"
-  resolve_conflicts_on_update = "OVERWRITE"
+
+  # 제약사항 3 반영: 향후 K8s 레벨에서 환경변수(Custom Networking)가 변경되어도 덮어쓰지 않고 보존
+  resolve_conflicts_on_update = "PRESERVE"
 
   # ⭐️ 여기에 Prefix Delegation 설정을 추가합니다!
   configuration_values = jsonencode({
@@ -37,3 +39,10 @@ resource "aws_eks_addon" "coredns" {
   depends_on                  = [aws_eks_node_group.this]
 }
 
+# 4. EKS Pod Identity Agent (워크로드용 차세대 IAM 연동 에이전트)
+resource "aws_eks_addon" "pod_identity" {
+  cluster_name                = aws_eks_cluster.this.name
+  addon_name                  = "eks-pod-identity-agent"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+}

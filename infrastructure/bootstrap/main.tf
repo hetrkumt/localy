@@ -4,7 +4,7 @@ provider "aws" {
 
 # 1. S3 Bucket for Terraform State
 resource "aws_s3_bucket" "terraform_state" {
-  bucket = "feifo-prod-tf-state-backend" 
+  bucket = "feifo-prod-tf-state-backend"
 
   lifecycle {
     prevent_destroy = true

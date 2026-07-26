@@ -42,15 +42,15 @@ data "aws_iam_policy_document" "prod_certmanager_assume_role_policy" {
     effect  = "Allow"
 
     condition {
-      test     = "StringEquals"
+      test = "StringEquals"
       # [핫픽스 1] OIDC sub 변수 끝의 불필요한 공백 제거
       variable = "${replace(module.eks.cluster_oidc_issuer_url, "https://", "")}:sub"
       # 오직 cert-manager 네임스페이스의 cert-manager SA만 접근 가능
-      values   = ["system:serviceaccount:cert-manager:cert-manager"]
+      values = ["system:serviceaccount:cert-manager:cert-manager"]
     }
 
     condition {
-      test     = "StringEquals"
+      test = "StringEquals"
       # [핫픽스 1] OIDC aud 변수 끝의 불필요한 공백 제거
       variable = "${replace(module.eks.cluster_oidc_issuer_url, "https://", "")}:aud"
       values   = ["sts.amazonaws.com"]

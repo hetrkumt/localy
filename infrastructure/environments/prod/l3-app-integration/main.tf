@@ -2,9 +2,9 @@ terraform {
   required_version = ">= 1.0.0"
 
   backend "s3" {
-    bucket         = "feifo-prod-tf-state-backend"
-    key            = "eks-gitops/prod/l3-app-integration.tfstate"
-    region         = "ap-northeast-2"
+    bucket = "feifo-prod-tf-state-backend"
+    key    = "eks-gitops/prod/l3-app-integration.tfstate"
+    region = "ap-northeast-2"
   }
 
   required_providers {
@@ -37,6 +37,11 @@ data "aws_ssm_parameter" "private_subnets" {
   name = local.ssm_paths["private_subnets"]
 }
 
+# 보수반영: RDS/Redis 생성을 위한 database_subnets 매핑
+data "aws_ssm_parameter" "database_subnets" {
+  name = local.ssm_paths["database_subnets"]
+}
+
 data "aws_ssm_parameter" "s3_vpc_endpoint_id" {
   name = local.ssm_paths["s3_vpc_endpoint_id"]
 }
@@ -61,6 +66,16 @@ data "aws_ssm_parameter" "role_loki_arn" {
 
 data "aws_ssm_parameter" "role_alarm_pipeline_sns_arn" {
   name = local.ssm_paths["role_alarm_pipeline_sns_arn"]
+}
+
+# 2차 타격: EKS 공통 깡통 Role ARN 불러오기 (권한 바인딩용)
+data "aws_ssm_parameter" "role_workload_pod_identity_arn" {
+  name = local.ssm_paths["role_workload_pod_identity_arn"]
+}
+
+# 보수반영: VPC CIDR block을 동적으로 탐색하여 보안그룹에 Ingress 맵핑
+data "aws_vpc" "existing" {
+  id = data.aws_ssm_parameter.vpc_id.value
 }
 
 # --- 공통 로컬 변수 정의 (locals 중복 선언 충돌 차단) ---
