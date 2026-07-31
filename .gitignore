@@ -20,7 +20,13 @@
 
 # 테라폼 실행 계획 (Plan) 무시 - 인프라 구조/비밀번호 평문 노출 방지
 **/*.tfplan
- **/tfplan
+**/tfplan
+tfplan
+
+# Apply/plan console logs (may contain resource names / plan metadata)
+*.log
+**/apply-*.log
+**/plan-*.log
 
 # 에러 크래시 로그
 crash.log
