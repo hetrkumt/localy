@@ -46,7 +46,14 @@ resource "aws_secretsmanager_secret_version" "store_role_arn" {
   secret_string = aws_ssm_parameter.store_role_arn.value
 }
 
-# 5. Keycloak Credentials Secret (Dummy secret template for user-service)
+# 5. Keycloak Credentials Secret — Phase 0: no plaintext client secrets in Git
+# Canonical app path is /localy/${env}/workload/user-oauth (secrets_workload.tf);
+# this legacy name stays for any old consumers and shares the same random.
+resource "random_password" "user_keycloak_client_secret" {
+  length  = 48
+  special = false
+}
+
 resource "aws_secretsmanager_secret" "user_keycloak_credentials" {
   name                    = "localy-prod-user-keycloak-credentials"
   recovery_window_in_days = 0
@@ -55,7 +62,6 @@ resource "aws_secretsmanager_secret" "user_keycloak_credentials" {
 resource "aws_secretsmanager_secret_version" "user_keycloak_credentials" {
   secret_id = aws_secretsmanager_secret.user_keycloak_credentials.id
   secret_string = jsonencode({
-    # Must match Keycloak realm client "user-service" secret (realm-import.json)
-    clientSecret = "7f9a1b2c-3d4e-5f6a-7b8c-9d0e1f2a3b4c"
+    clientSecret = random_password.user_keycloak_client_secret.result
   })
 }

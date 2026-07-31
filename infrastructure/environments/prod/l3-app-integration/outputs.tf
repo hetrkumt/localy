@@ -38,6 +38,6 @@ output "store_key_arn" {
 }
 
 output "store_role_arn" {
-  description = "The IAM Role ARN for store-service Pod Identity"
-  value       = aws_iam_role.store_service.arn
+  description = "The IAM Role ARN for store-service IRSA/Pod Identity"
+  value       = aws_iam_role.workload_service_irsa["store-service"].arn
 }

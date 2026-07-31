@@ -2,9 +2,11 @@ terraform {
   required_version = ">= 1.0.0"
 
   backend "s3" {
-    bucket = "feifo-prod-tf-state-backend"
-    key    = "eks-gitops/prod/l4-bootstrap.tfstate"
-    region = "ap-northeast-2"
+    bucket         = "feifo-prod-tf-state-backend"
+    key            = "eks-gitops/prod/l4-bootstrap.tfstate"
+    region         = "ap-northeast-2"
+    dynamodb_table = "feifo-prod-tf-locks"
+    encrypt        = true
   }
 
   required_providers {
@@ -70,7 +72,7 @@ provider "helm" {
 }
 
 # --------------------------------------------------------
-# ArgoCD Helm Release 배포 + 선언적 Root App-of-Apps 매설
+# ArgoCD Helm Release — Phase 8: Multi-Source SSOT (no enable-helm)
 # --------------------------------------------------------
 resource "helm_release" "argocd" {
   name             = "argocd"
@@ -80,13 +82,9 @@ resource "helm_release" "argocd" {
   namespace        = "argocd"
   create_namespace = true
 
-  # yamlencode를 통한 복잡한 헬름 값(yaml) 주입
   values = [
     yamlencode({
       configs = {
-        cm = {
-          "kustomize.buildOptions" = "--enable-helm"
-        }
         params = {
           "otlp.address" = ""
         }
@@ -96,16 +94,17 @@ resource "helm_release" "argocd" {
 }
 
 # --------------------------------------------------------
-# ArgoCD Apps 차트를 통한 선언적 Root App-of-Apps 매설
+# Gate 8A — Retarget Root App-of-Apps to gitops/overlays/prod
+# prune=false / selfHeal=true (Gate 8B prune:true after soak)
+# Physical archive of argocd-apps/ bootstrap/ deferred to Go-Live (8C)
 # --------------------------------------------------------
 resource "helm_release" "argocd_apps" {
   name       = "argocd-apps"
   repository = "https://argoproj.github.io/argo-helm"
   chart      = "argocd-apps"
-  version    = "1.6.2" # ArgoCD Apps 차트 버전
+  version    = "1.6.2"
   namespace  = "argocd"
 
-  # ArgoCD 핵심 컴포넌트(CRD 포함)가 생성된 이후에 실행되도록 의존성 부여
   depends_on = [helm_release.argocd]
 
   values = [
@@ -116,9 +115,9 @@ resource "helm_release" "argocd_apps" {
           namespace = "argocd"
           project   = "default"
           source = {
-            repoURL        = "https://github.com/hetrkumt/localy-manifests.git" # 사용자님의 실제 원격 저장소 주소
-            targetRevision = "main"                                             # 최초 push한 main 브랜치 적용
-            path           = "argocd-apps/overlays/prod"
+            repoURL        = "https://github.com/hetrkumt/localy-manifests.git"
+            targetRevision = "main"
+            path           = "gitops/overlays/prod"
           }
           destination = {
             server    = "https://kubernetes.default.svc"
@@ -126,11 +125,14 @@ resource "helm_release" "argocd_apps" {
           }
           syncPolicy = {
             automated = {
-              prune    = true
+              prune    = false
               selfHeal = true
             }
             syncOptions = [
-              "CreateNamespace=true"
+              "CreateNamespace=true",
+              "ServerSideApply=true",
+              "Delete=false",
+              "Prune=false"
             ]
           }
         }

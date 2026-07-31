@@ -1,5 +1,5 @@
 # ========================================================================
-#    L3 App Integration SSM Parameters - 타 레이어 및 GitOps 간접 참조용 배관 선언
+#    L3 App Integration SSM Parameters - ? ??? ? GitOps ?? ??? ?? ??
 # ========================================================================
 
 resource "aws_ssm_parameter" "loki_bucket_name" {
@@ -42,7 +42,7 @@ resource "aws_ssm_parameter" "chatops_topic_arn" {
 }
 
 # ========================================================================
-# Store Service — SSM Parameter 배관 (ESO 및 매니페스트 간접 참조용)
+# Store Service ? SSM Parameter ?? (ESO ? ????? ?? ???)
 # ========================================================================
 
 resource "aws_ssm_parameter" "store_bucket_name" {
@@ -72,10 +72,11 @@ resource "aws_ssm_parameter" "store_key_arn" {
 }
 
 resource "aws_ssm_parameter" "store_role_arn" {
+  # Prefer per-service IRSA when present (Phase 7 correction)
   name        = local.ssm_paths["store_role_arn"]
   type        = "String"
-  value       = aws_iam_role.store_service.arn
-  description = "The store-service Pod Identity IAM Role ARN"
+  value       = aws_iam_role.workload_service_irsa["store-service"].arn
+  description = "The store-service IRSA/Pod Identity IAM Role ARN"
 
   tags = {
     Environment = var.env_name
@@ -85,7 +86,7 @@ resource "aws_ssm_parameter" "store_role_arn" {
 }
 
 # ========================================================================
-# MSK Parameter (ESO �� KEDA ������)
+# MSK Parameter (ESO ?? KEDA ??????)
 # ========================================================================
 resource "aws_ssm_parameter" "msk_bootstrap_servers" {
   name        = local.ssm_paths["msk_bootstrap_servers"]
@@ -102,7 +103,7 @@ resource "aws_ssm_parameter" "msk_bootstrap_servers" {
 
 
 # ========================================================================
-# Missing WAF & ACM Parameters (GitOps 보수)
+# Missing WAF & ACM Parameters (GitOps ??)
 # ========================================================================
 
 resource "aws_ssm_parameter" "waf_arn" {

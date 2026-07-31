@@ -1,33 +1,8 @@
 # ========================================================================
-# Workload Pod Identity Associations (user, payment, cart)
+# Workload Pod Identity Associations — RETIRED (Phase 7 correction)
+# Replaced by iam_workload_per_service_irsa.tf (1:1 dedicated roles).
+# Kept as comments for audit trail; do not re-enable shared role bindings.
 # ========================================================================
 
-resource "aws_eks_pod_identity_association" "user_service" {
-  cluster_name    = data.aws_ssm_parameter.eks_cluster_name.value
-  namespace       = "user-service"
-  service_account = "user-service-sa"
-  role_arn        = data.aws_ssm_parameter.role_workload_pod_identity_arn.value
-}
-
-resource "aws_eks_pod_identity_association" "payment_service" {
-  cluster_name    = data.aws_ssm_parameter.eks_cluster_name.value
-  namespace       = "payment-service"
-  service_account = "payment-service-sa"
-  role_arn        = data.aws_ssm_parameter.role_workload_pod_identity_arn.value
-}
-
-resource "aws_eks_pod_identity_association" "cart_service" {
-  cluster_name    = data.aws_ssm_parameter.eks_cluster_name.value
-  namespace       = "cart-service"
-  service_account = "cart-service-sa"
-  role_arn        = data.aws_ssm_parameter.role_workload_pod_identity_arn.value
-}
-
-# store_service association is owned by iam_store_pod_identity.tf (dedicated role)
-
-resource "aws_eks_pod_identity_association" "order_service" {
-  cluster_name    = data.aws_ssm_parameter.eks_cluster_name.value
-  namespace       = "order-service"
-  service_account = "order-service-sa"
-  role_arn        = data.aws_ssm_parameter.role_workload_pod_identity_arn.value
-}
+# Previously bound user/payment/cart/order → shared workload-pod-identity-role.
+# store-service association moved from iam_store_pod_identity.tf to per-service IRSA.

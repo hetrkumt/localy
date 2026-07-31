@@ -72,15 +72,8 @@ resource "aws_iam_policy" "store_s3_access" {
         ]
         Resource = aws_kms_key.store_s3.arn
       },
-      {
-        Sid    = "AllowSecretsManagerRead"
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
-        ]
-        Resource = "*"
-      }
+      # Secrets Manager read moved to path-scoped policy on
+      # aws_iam_role.workload_service_irsa["store-service"] (Phase 7 correction).
     ]
   })
 }
@@ -90,21 +83,11 @@ resource "aws_iam_role_policy_attachment" "store_s3" {
   policy_arn = aws_iam_policy.store_s3_access.arn
 }
 
-# Attach shared MSK + RDS IAM Auth policies (same as generic workload role)
-resource "aws_iam_role_policy_attachment" "store_msk" {
-  role       = aws_iam_role.store_service.name
-  policy_arn = aws_iam_policy.workload_msk_access.arn
-}
+# Attach shared MSK + RDS to LEGACY store role retired — canonical bindings are on
+# aws_iam_role.workload_service_irsa["store-service"] (iam_workload_per_service_irsa.tf).
+# Keep S3 policy attachment on legacy role only so policy resource can still be referenced
+# by store_irsa_s3; MSK/RDS duplicate attachments removed to shrink blast radius.
 
-resource "aws_iam_role_policy_attachment" "store_rds_iam" {
-  role       = aws_iam_role.store_service.name
-  policy_arn = aws_iam_policy.workload_rds_iam_access.arn
-}
-
-# 3. EKS Pod Identity Association (K8s SA ↔ IAM Role 바인딩)
-resource "aws_eks_pod_identity_association" "store_service" {
-  cluster_name    = data.aws_ssm_parameter.eks_cluster_name.value
-  namespace       = "store-service"
-  service_account = "store-service-sa"
-  role_arn        = aws_iam_role.store_service.arn
-}
+# 3. Pod Identity Association RETIRED — see iam_workload_per_service_irsa.tf
+# Canonical role: prod-eks-store-service-irsa-role (SSM: .../apps/iam/store_service_role_arn)
+# Legacy role aws_iam_role.store_service retained temporarily for S3 policy ARN reuse only.

@@ -17,8 +17,11 @@ resource "aws_iam_policy" "workload_secrets_access" {
           "secretsmanager:GetSecretValue",
           "secretsmanager:DescribeSecret"
         ]
+        # Shared role retained as fallback only — path-scoped policies live on
+        # per-service IRSA roles (iam_workload_per_service_irsa.tf).
         Resource = [
-          "arn:aws:secretsmanager:ap-northeast-2:${data.aws_caller_identity.current.account_id}:secret:*"
+          "arn:aws:secretsmanager:ap-northeast-2:${data.aws_caller_identity.current.account_id}:secret:/localy/${var.env_name}/workload/*",
+          "arn:aws:secretsmanager:ap-northeast-2:${data.aws_caller_identity.current.account_id}:secret:localy/${var.env_name}/workload/*"
         ]
       }
     ]

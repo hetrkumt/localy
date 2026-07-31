@@ -125,7 +125,10 @@ resource "aws_iam_role" "grafana" {
       }
       Condition = {
         StringEquals = {
-          "${replace(aws_iam_openid_connect_provider.this.url, "https://", "")}:sub" = "system:serviceaccount:monitoring:kube-prometheus-stack-grafana"
+          "${replace(aws_iam_openid_connect_provider.this.url, "https://", "")}:sub" = [
+            "system:serviceaccount:monitoring:kube-prometheus-stack-grafana",
+            "system:serviceaccount:monitoring:grafana-eso-sa"
+          ]
           "${replace(aws_iam_openid_connect_provider.this.url, "https://", "")}:aud" = "sts.amazonaws.com"
         }
       }
@@ -136,4 +139,33 @@ resource "aws_iam_role" "grafana" {
 resource "aws_iam_role_policy_attachment" "grafana_cloudwatch_readonly" {
   policy_arn = "arn:aws:iam::aws:policy/CloudWatchReadOnlyAccess"
   role       = aws_iam_role.grafana.name
+}
+
+# Phase 7 correction — Grafana admin secret path (ESO SecretStore via Grafana SA)
+resource "aws_iam_policy" "grafana_secrets_read" {
+  name        = "${var.cluster_name}-grafana-secrets-read-policy"
+  description = "Least-privilege SM read for Grafana admin credentials"
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid    = "AllowGrafanaAdminSecretRead"
+        Effect = "Allow"
+        Action = [
+          "secretsmanager:GetSecretValue",
+          "secretsmanager:DescribeSecret"
+        ]
+        Resource = [
+          "arn:aws:secretsmanager:ap-northeast-2:${data.aws_caller_identity.current.account_id}:secret:/localy/*/platform/grafana*",
+          "arn:aws:secretsmanager:ap-northeast-2:${data.aws_caller_identity.current.account_id}:secret:localy/*/platform/grafana*"
+        ]
+      }
+    ]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "grafana_secrets_read" {
+  role       = aws_iam_role.grafana.name
+  policy_arn = aws_iam_policy.grafana_secrets_read.arn
 }

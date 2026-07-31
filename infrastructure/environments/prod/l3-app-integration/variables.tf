@@ -19,3 +19,15 @@ variable "admin_ip" {
   type    = string
   default = "121.162.247.165/32"
 }
+
+variable "db_master_password_rotation_token" {
+  description = <<-EOT
+    Reserved for token-based RDS password rotation.
+    Today rotate with: terraform apply -replace=random_password.db_password
+    To switch to token rotate later, add keepers on random_password.db_password
+    (first apply after that will rotate once — use a maintenance window).
+    Never rotate via Console put-secret-value or modify-db-instance password.
+  EOT
+  type        = string
+  default     = "initial"
+}

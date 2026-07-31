@@ -2,9 +2,11 @@ terraform {
   required_version = ">= 1.0.0"
 
   backend "s3" {
-    bucket = "feifo-prod-tf-state-backend"
-    key    = "eks-gitops/prod/l3-app-integration.tfstate"
-    region = "ap-northeast-2"
+    bucket         = "feifo-prod-tf-state-backend"
+    key            = "eks-gitops/prod/l3-app-integration.tfstate"
+    region         = "ap-northeast-2"
+    dynamodb_table = "feifo-prod-tf-locks"
+    encrypt        = true
   }
 
   required_providers {

@@ -7,6 +7,9 @@
   Pre-cleans ECR / Karpenter / k8s ALBs / sticky S3, then terraform destroy:
     l4-bootstrap → l3-app-integration → l2-eks → l1-network
 
+  For layers with required vars (l2-eks), uses apply.local.tfvars when present;
+  otherwise passes destroy-only placeholders.
+
   Known blockers handled:
   - ECR repos with images (force delete before TF, or TF fails)
   - Karpenter EC2 left after control-plane gone
@@ -37,7 +40,7 @@ param(
 $ErrorActionPreference = "Continue"
 $RootPath = $PSScriptRoot
 if (-not $RootPath) {
-    $RootPath = "C:\Users\dev\LocalyMSAApplicationModernization\localy\infrastructure\environments\prod"
+    $RootPath = "C:\Users\dev\frame3 로드맵 설계용\localy\infrastructure\environments\prod"
 }
 
 $env:AWS_DEFAULT_REGION = $Region
@@ -230,11 +233,13 @@ Empty-S3Bucket -Bucket "${EnvName}-eks-cloudtrail-audit-logs"
 Empty-S3Bucket -Bucket "localy-store-images-${EnvName}"
 # Loki has Object Lock COMPLIANCE — do NOT try to empty; remove from state instead
 Write-Host "Loki vault (${EnvName}-eks-loki-logs-vault) uses Object Lock COMPLIANCE — will state-rm (orphan)."
+Write-Host "Keep legacy Loki CMK Enabled (Object-Lock objects); policy SSOT: kms_loki_legacy.tf — do NOT schedule-key-deletion until retention expires."
 
 # ---------- [5] Remove Object-Lock Loki resources from TF state ----------
 Write-Step "[5/7] PRE-CLEANUP: terraform state rm Loki Object Lock bucket graph"
 $l3 = Join-Path $RootPath "l3-app-integration"
 $lokiStateAddrs = @(
+    "aws_kms_key_policy.loki_legacy[0]",
     "aws_s3_bucket_policy.loki_logs",
     "aws_s3_bucket_lifecycle_configuration.loki_logs_lifecycle",
     "aws_s3_bucket_server_side_encryption_configuration.loki_logs",
@@ -278,7 +283,41 @@ foreach ($layer in $layers) {
         & terraform init -input=false -upgrade
         if ($LASTEXITCODE -ne 0) { throw "terraform init failed for $layer" }
 
-        & terraform destroy -auto-approve -input=false
+        # Required vars without defaults (l2) live in gitignored apply.local.tfvars.
+        # Destroy still needs them for config load even though values won't change remote state.
+        $destroyArgs = @("destroy", "-auto-approve", "-input=false")
+        $localTfvars = Join-Path $layerPath "apply.local.tfvars"
+        if (Test-Path $localTfvars) {
+            Write-Host "Using -var-file=apply.local.tfvars"
+            # Quote required: PowerShell parses apply.local.tfvars as property access otherwise
+            $destroyArgs += "-var-file=$localTfvars"
+        } elseif ($layer -eq "l2-eks") {
+            Write-Host "No apply.local.tfvars — passing destroy placeholders for required vars"
+            $destroyArgs += "-var=admin_ip=127.0.0.1/32"
+            $destroyArgs += "-var=chatops_sre_slack_user_ids=[`"U00000000`"]"
+        }
+
+        # Before l2: workers may have been recreated during long l3 destroy
+        if ($layer -eq "l2-eks") {
+            Write-Host "Pre-l2 re-scavenge: terminate any Karpenter/EKS workers still running..."
+            $preIds = [System.Collections.Generic.HashSet[string]]::new()
+            foreach ($tk in @("karpenter.sh/nodepool", "karpenter.sh/nodeclaim", "karpenter.sh/managed-by", "karpenter.k8s.aws/ec2nodeclass")) {
+                foreach ($id in (Get-AwsText ec2 describe-instances --region $Region --filters "Name=instance-state-name,Values=running,pending,stopping" "Name=tag-key,Values=$tk" --query "Reservations[*].Instances[*].InstanceId" --output text)) {
+                    [void]$preIds.Add($id)
+                }
+            }
+            foreach ($id in (Get-AwsText ec2 describe-instances --region $Region --filters "Name=instance-state-name,Values=running,pending,stopping" "Name=tag:eks:cluster-name,Values=${EnvName}-eks" --query "Reservations[*].Instances[*].InstanceId" --output text)) {
+                [void]$preIds.Add($id)
+            }
+            if ($preIds.Count -gt 0) {
+                Write-Host "Pre-l2 terminate: $($preIds -join ', ')"
+                & aws ec2 terminate-instances --region $Region --instance-ids @($preIds) 2>$null | Out-Null
+                Start-Sleep -Seconds 45
+            }
+        }
+
+        Write-Host ("terraform " + ($destroyArgs -join ' '))
+        & terraform @destroyArgs
         if ($LASTEXITCODE -ne 0) {
             Write-Warning "terraform destroy failed for $layer (exit $LASTEXITCODE). Re-scavenging workers/LBs then retry..."
             # Re-run Karpenter/EKS instance termination (common l2 blocker)
@@ -299,7 +338,7 @@ foreach ($layer in $layers) {
                 & aws elbv2 delete-load-balancer --region $Region --load-balancer-arn $arn 2>$null | Out-Null
             }
             Start-Sleep -Seconds 60
-            & terraform destroy -auto-approve -input=false
+            & terraform @destroyArgs
             if ($LASTEXITCODE -ne 0) {
                 throw "Failed to destroy layer $layer. Aborting remaining layers."
             }

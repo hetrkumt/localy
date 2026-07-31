@@ -4,9 +4,9 @@
 
 # 1. Keycloak 초기 Admin 비밀번호 동적 생성
 resource "random_password" "keycloak_admin_password" {
-  length           = 16
-  special          = true
-  override_special = "!#$%&*()-_=+[]{}<>:?"
+  # Alphanumeric avoids Bitnami/kcadm shell-quoting pitfalls on bootstrap.
+  length  = 24
+  special = false
 }
 
 # 2. AWS Secrets Manager에 Keycloak 최고 관리자(Admin) 자격증명 저장
