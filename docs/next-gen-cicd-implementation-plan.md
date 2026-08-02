@@ -281,13 +281,32 @@ Wave 6+ Theme 4/5 잔여 / Theme 6 스케일·Spot (병렬 가능)
 
 | Wave | 상태 | 비고 |
 |---|---|---|
-| 0 실측 | ⬜ pending | |
-| 1 공급망 기반 | ⬜ pending | 첫 코딩 후보 |
-| 2 CI+승격 | ⬜ pending | W1과 태그 계약 동시 권장 |
+| 0 실측 | ✅ done | 2026-08-03 · OIDC 기교정 확인 |
+| 1 공급망 기반 | 🟡 code ready | `ecr.tf` IMMUTABLE+lifecycle 작성 · **TF apply 대기** |
+| 2 CI+승격 | 🟡 code ready | GHA/Dockerfile/scripts/pins 문서 갱신 · **시크릿·머지·E2E 대기** |
 | 3 카나리 | ⬜ pending | order pilot |
 | 4 SLI+ChatOps | ⬜ pending | |
 | 5 Kyverno enforce | ⬜ pending | |
 | 6+ 후속 | ⬜ deferred | |
+
+### Wave 1+2 코드 변경 요약 (2026-08-03)
+
+| 저장소 | 변경 |
+|---|---|
+| `localy` | `ecr.tf` IMMUTABLE + lifecycle; `rebuild-ecr-image-pins.ps1` `-NewTag` / no `latest` |
+| `localy-backend` | `build-push-ecr.yml` (paths-filter, concurrency, sha tag, Trivy, Cosign, promote PR); 6× Dockerfile cache+Non-Root; Hub 스크립트 폐기 |
+| `localy-manifests` | `image-pins.yaml` 계약 문서만 갱신 (live pin 값은 승격 PR 전까지 `e2e*` 유지) |
+
+### 게이트 (사람 승인 필요)
+
+1. **`terraform apply`** on `l3-app-integration` (ECR IMMUTABLE) — 운영 레지스트리 속성 변경
+2. **GitHub secret `LOCALY_MANIFESTS_TOKEN`** on `localy-backend` — manifests write + PR
+3. 세 저장소 변경 커밋/푸시 후 `workflow_dispatch` 또는 main 푸시로 E2E 검증
+
+### 의도적 완화
+
+- `gradle test`: `@SpringBootTest`가 인프라 없이 실패 → **soft-gate** (`continue-on-error: true`). Hard-fail는 testcontainers/profile 이후.
+- Lifecycle: 아젠다의 sha 30일 삭제 대신 **sha-* 최신 50개 유지** (롤백 창 보호).
 
 ---
 
