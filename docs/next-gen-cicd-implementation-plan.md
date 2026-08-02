@@ -286,7 +286,7 @@ Wave 6+ Theme 4/5 잔여 / Theme 6 스케일·Spot (병렬 가능)
 | 2 CI+승격 | 🟡 code ready | GHA/Dockerfile/scripts/pins 문서 갱신 · **시크릿·머지·E2E 대기** |
 | 3 카나리 | 🟡 code ready | order Rollout pilot · ALB template for edge · **클러스터 기동 후 검증** |
 | 4 SLI+ChatOps | 🟡 code ready | Analysis+ECR EventBridge+Notifications · **클러스터/TF apply 후 검증** |
-| 5 Kyverno enforce | ⬜ pending | |
+| 5 Kyverno enforce | 🟡 code ready | registry Enforce · Cosign Audit→Enforce cutover · legacy script retired |
 | 6+ 후속 | ⬜ deferred | |
 
 ### Wave 1+2 코드 변경 요약 (2026-08-03)
