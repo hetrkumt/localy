@@ -92,8 +92,13 @@ resource "aws_iam_role_policy" "chatops_dispatch_lambda_runtime" {
 }
 
 # -------------------------------------------------------------------------
-# 3) Lambda artifact — Shared Placeholder 사용
+# 3) Lambda artifact — Wave 4 real dispatch handler (placeholder kept for skeletons)
 # -------------------------------------------------------------------------
+data "archive_file" "chatops_dispatch_handler" {
+  type        = "zip"
+  source_file = "${path.module}/src/lambda_chatops/handler.py"
+  output_path = "${path.module}/.artifacts/chatops_dispatch_handler.zip"
+}
 
 resource "aws_cloudwatch_log_group" "chatops_dispatch_lambda" {
   name              = "/aws/lambda/${local.chatops_dispatch_lambda_fn_name}"
@@ -112,15 +117,18 @@ resource "aws_cloudwatch_log_group" "chatops_dispatch_lambda" {
 # -------------------------------------------------------------------------
 resource "aws_lambda_function" "chatops_dispatch" {
   function_name = local.chatops_dispatch_lambda_fn_name
-  description   = "ChatOps dispatch — SNS __JIT_CTX__ to Slack Block Kit + JIT button"
+  description   = "ChatOps dispatch — SNS (Alertmanager/ECR EventBridge) to Slack Block Kit"
   role          = aws_iam_role.chatops_dispatch_lambda.arn
-  handler       = "lambda_function.handler"
+  handler       = "handler.handler"
   runtime       = "python3.12"
   timeout       = 30
   memory_size   = 256
 
-  filename         = data.archive_file.chatops_lambda_placeholder.output_path
-  source_code_hash = data.archive_file.chatops_lambda_placeholder.output_base64sha256
+  # Wave 4 FinOps / Slack 429 guard
+  reserved_concurrent_executions = 5
+
+  filename         = data.archive_file.chatops_dispatch_handler.output_path
+  source_code_hash = data.archive_file.chatops_dispatch_handler.output_base64sha256
 
   environment {
     variables = {

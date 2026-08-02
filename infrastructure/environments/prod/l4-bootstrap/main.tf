@@ -89,6 +89,16 @@ resource "helm_release" "argocd" {
           "otlp.address" = ""
         }
       }
+      # Wave 4 — notifications controller; ConfigMap/Secret owned by GitOps + ESO
+      notifications = {
+        enabled = true
+        cm = {
+          create = false
+        }
+        secret = {
+          create = false
+        }
+      }
     })
   ]
 }
