@@ -284,7 +284,7 @@ Wave 6+ Theme 4/5 잔여 / Theme 6 스케일·Spot (병렬 가능)
 | 0 실측 | ✅ done | 2026-08-03 · OIDC 기교정 확인 |
 | 1 공급망 기반 | 🟡 code ready | `ecr.tf` IMMUTABLE+lifecycle 작성 · **TF apply 대기** |
 | 2 CI+승격 | 🟡 code ready | GHA/Dockerfile/scripts/pins 문서 갱신 · **시크릿·머지·E2E 대기** |
-| 3 카나리 | ⬜ pending | order pilot |
+| 3 카나리 | 🟡 code ready | order Rollout pilot · ALB template for edge · **클러스터 기동 후 검증** |
 | 4 SLI+ChatOps | ⬜ pending | |
 | 5 Kyverno enforce | ⬜ pending | |
 | 6+ 후속 | ⬜ deferred | |
