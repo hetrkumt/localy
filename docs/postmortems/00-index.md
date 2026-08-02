@@ -220,6 +220,228 @@ L4→L1 철거 스크립트는 ECR, Load Balancer, Karpenter 인스턴스, S3를
 
 ---
 
+## 시즌 2 — 재배포 가능성을 검증하면서 드러난 운영 계약
+
+시즌 1이 “무너진 플랫폼을 어떻게 복구했는가”를 다뤘다면, 시즌 2는 복구 이후 **같은 환경을 다시 만들고 없앨 수 있는가**를 검증하는 과정에서 발견한 문제를 다룬다.
+
+백로그 번호나 작업 순서는 글의 기준으로 사용하지 않는다. 독자가 장애의 인과관계를 따라갈 수 있도록 하나의 독립된 실패 모델마다 한 편을 배정한다. 단순 개선 작업은 별도 회고로 부풀리지 않고, 기존 회고의 후속 설계 또는 운영 런북에서 다룬다.
+
+### 시즌 2 사건 흐름
+
+```text
+L1~L4 재배포
+  → 플랫폼 컨트롤러 기동
+  → Reloader의 HA 설정 계약 불일치
+  → Keycloak·OAuth 자격증명의 다중 시스템 정렬
+  → 빈 ECR과 이미지 태그·CPU 아키텍처 불일치
+  → Argo CD의 동적 필드·소유권·reconcile 상태 오판
+  → ingress-core의 인증서·webhook·VPC·subnet 의존성 연쇄 장애
+  → 동일 도메인을 두 ALB가 주장한 ExternalDNS 충돌
+  → Object Lock 데이터와 과거 KMS 키의 생명주기 충돌
+  → 두 번째 L4→L1 철거에서 orphan Security Group 제거
+```
+
+---
+
+### [회고 10] [Reloader는 왜 자기 이름을 요구했나: replica 수와 HA 모드의 숨은 계약](./10-reloader-ha-half-config.md)
+
+**핵심 지식**
+
+- Helm chart 값과 실제 컨테이너 argument의 차이
+- leader election과 Pod identity
+- `replicas`, `enableHA`, `POD_NAME`의 결합 조건
+- CrashLoopBackOff에서 렌더링 결과를 읽는 방법
+
+**스토리라인**
+
+Reloader는 두 replica로 배포됐지만 `enableHA: false`였다. 그런데 렌더링된 컨테이너에는 `--enable-ha=true`가 들어갔고, HA 모드가 요구하는 `POD_NAME` 환경변수는 없었다. 프로세스는 `POD_NAME not set`으로 반복 종료됐다. Deployment의 replica 수, chart 값, 실제 args와 env를 대조해 모순을 확인했고, 현재 가용성 요구에 맞춰 단일 replica·HA 비활성으로 정렬했다.
+
+**핵심 교훈**
+
+Helm values의 각 필드는 독립 옵션이 아니다. 함께 만족해야 하는 런타임 계약을 렌더링 결과로 검증해야 한다.
+
+---
+
+### [회고 11] [Secret을 회전했더니 인증이 끊겼다: OAuth 자격증명의 양쪽 끝 맞추기](./11-oauth-secret-rotation-contract.md)
+
+**핵심 지식**
+
+- OAuth client credential의 issuer 측 원본과 consumer 측 복제본
+- Terraform `random_password`, Secrets Manager, ESO, Keycloak client
+- admin bootstrap credential과 운영 credential의 차이
+- `client_credentials` grant를 이용한 기능 검증
+
+**스토리라인**
+
+Terraform이 user·edge OAuth secret을 새로 생성하자 Secrets Manager와 Kubernetes Secret은 갱신됐지만 Keycloak client에는 과거 값이 남았다. 반대로 Keycloak만 바꿔도 애플리케이션이 이전 secret을 사용하면 인증은 실패한다. 두 시스템을 같은 값으로 정렬한 뒤 토큰 endpoint에 `client_credentials` 요청을 보내 HTTP 200을 확인했다. 이 사건은 “Secret이 존재한다”와 “인증 관계의 양쪽 끝이 일치한다”가 다른 조건임을 보여줬다.
+
+**핵심 교훈**
+
+공유 자격증명의 회전은 값을 생성하는 작업이 아니라 producer와 verifier를 원자적으로 전환하는 배포 작업이다.
+
+---
+
+### [회고 12] [매니페스트는 이미지를 가리켰지만 레지스트리는 비어 있었다: 배포 산출물의 SSOT](./12-ecr-image-artifact-ssot.md)
+
+**핵심 지식**
+
+- ECR repository와 image artifact의 생명주기 차이
+- Git SHA, 고정 tag, `latest`의 의미
+- CI build/push와 GitOps image pin의 연결
+- teardown 이후 재배포에서 코드와 artifact가 갖는 비대칭성
+
+**스토리라인**
+
+인프라와 GitOps 선언은 복구됐지만 ECR은 철거 과정에서 비워졌다. 매니페스트의 `newTag`와 CI가 실제로 push하는 tag도 일치하지 않아 Pod는 실행할 이미지를 찾을 수 없었다. image pin 파일을 기준으로 필요한 이미지를 점검·재빌드하는 스크립트를 만들고, CI가 GitOps 고정 tag와 운영 편의용 `latest`를 함께 push하도록 정렬했다.
+
+**핵심 교훈**
+
+GitOps는 배포할 artifact를 선언할 뿐 artifact 자체를 보존하지 않는다. 재구축 가능성에는 이미지 공급망도 포함돼야 한다.
+
+---
+
+### [회고 13] [노드는 준비됐는데 컨테이너가 실행되지 않았다: CPU 아키텍처도 배포 계약이다](./13-cpu-architecture-deployment-contract.md)
+
+**핵심 지식**
+
+- OCI image platform과 EC2 instance architecture
+- Karpenter NodePool 요구조건
+- `linux/amd64` 단일 이미지와 multi-arch manifest
+- 스케줄 성공과 컨테이너 실행 성공의 차이
+
+**스토리라인**
+
+Karpenter workload NodePool은 Graviton 계열을 허용했지만 CI가 만든 서비스 이미지는 `linux/amd64`뿐이었다. 스케줄러 관점에서는 정상 노드였지만 kubelet은 해당 CPU에서 이미지를 실행할 수 없었다. 즉시 복구에서는 NodePool과 workload·Job의 selector를 amd64로 제한했고, CI도 buildx의 플랫폼을 명시했다. multi-arch 이미지는 가능한 대안이지만 검증되지 않은 상태에서 NodePool만 arm64로 넓히지 않도록 경계를 남겼다.
+
+**핵심 교훈**
+
+스케줄링 요구조건과 이미지 빌드 플랫폼은 서로 다른 저장소에 있어도 하나의 배포 계약이다.
+
+---
+
+### [회고 14] [실제 리소스는 정상인데 Argo CD는 왜 OutOfSync였나: 동적 필드와 제어권 경계](./14-argocd-dynamic-fields-ownership.md)
+
+**핵심 지식**
+
+- desired state와 controller-mutated state
+- ESO default/status, KEDA replica, generated Secret
+- `ignoreDifferences`와 `RespectIgnoreDifferences`
+- 강제 reconcile annotation이 만드는 자기 드리프트
+
+**스토리라인**
+
+워크로드와 ExternalSecret은 정상 동작했지만 Argo CD에는 OutOfSync가 누적됐다. 원인은 장애 난 리소스가 아니라 ESO가 기본값과 status를 기록하고, KEDA가 Deployment replica를 바꾸며, ESO가 생성한 Secret data를 소유하는 정상 동작이었다. 여기에 임시 `force-sync` annotation이 Git에 없는 변경으로 남아 드리프트를 증폭했다. 컨트롤러별 쓰기 권한을 구분해 동적 필드만 무시하고, 임시 annotation과 orphan PDB를 제거했다.
+
+**핵심 교훈**
+
+모든 차이를 제거하는 것이 GitOps 정합성은 아니다. 정상적으로 변해야 하는 필드의 주인을 명시하는 것이 정합성이다.
+
+---
+
+### [회고 15] [Ingress 하나가 뜨기까지: annotation·webhook·인증서·VPC·subnet의 연쇄 장애](./15-ingress-core-dependency-chain.md)
+
+**핵심 지식**
+
+- Kubernetes annotation qualified name 규칙
+- AWS Load Balancer Controller admission webhook TLS
+- ALB controller의 VPC discovery
+- subnet tag와 internet-facing/internal ALB
+- ACM·WAF ARN처럼 재생성 때 바뀌는 식별자
+
+**스토리라인**
+
+`ingress-core`의 Missing은 단일 원인이 아니었다. 잘못된 annotation key가 API validation을 통과하지 못했고, 클러스터 재생성 뒤 webhook TLS secret과 endpoint가 깨졌으며, 매니페스트에는 삭제된 ACM·WAF ARN과 과거 VPC ID가 남아 있었다. 이를 고친 뒤에도 public subnet의 cluster tag가 부족해 ALB subnet discovery가 실패했다. API validation에서 AWS resource discovery까지 계층별 증거를 따라가며 외부·내부 ALB를 모두 생성했다.
+
+**핵심 교훈**
+
+Ingress는 YAML 한 장이 아니라 Kubernetes API, admission, controller 설정, AWS 네트워크 자원의 합성 결과다.
+
+---
+
+### [회고 16] [같은 도메인을 두 ALB가 주장했다: ExternalDNS의 마지막 writer 문제](./16-externaldns-hostname-ownership.md)
+
+**핵심 지식**
+
+- ExternalDNS source와 TXT registry
+- Route 53 Alias record
+- external/internal Ingress의 hostname 소유권
+- reconcile loop와 last-writer 효과
+
+**스토리라인**
+
+외부 ALB와 내부 ALB가 모두 생성됐지만 두 Ingress가 `feifo.click`을 hostname으로 사용했다. ExternalDNS는 두 객체를 유효한 source로 보았고, public Route 53 A record를 internal ALB로 반복 갱신했다. exclude annotation만으로 해결을 시도했으나 충돌을 명확히 제거하기 위해 내부 host를 `internal.feifo.click`로 분리했다. 이후 `feifo.click`은 external ALB, 내부 이름은 internal ALB를 가리키는지 Route 53과 HTTPS redirect로 검증했다.
+
+**핵심 교훈**
+
+DNS 자동화에서는 레코드 값보다 먼저 “누가 이 hostname을 소유하는가”가 유일해야 한다.
+
+---
+
+### [회고 17] [리소스는 있는데 Missing이었다: Argo CD reconcile 정체와 orphan 경고의 범위](./17-karpenter-argocd-reconcile-orphans.md)
+
+**핵심 지식**
+
+- Argo Application status cache와 live resource
+- cluster-scoped CR의 destination namespace
+- AppProject `orphanedResources`
+- Server-Side Apply와 managed fields
+- controller 재시작이 필요한 상태와 불필요한 상태
+
+**스토리라인**
+
+네 개 NodePool과 EC2NodeClass는 실제 클러스터에 존재하고 정상 동작했지만 `karpenter-provisioner` Application은 OutOfSync/Missing으로 표시됐다. 동시에 destination이 `kube-system`인 platform project가 자신이 관리하지 않는 140여 개 리소스를 orphan으로 경고했다. ignore 설정을 넓혀도 상태가 바뀌지 않은 이유는 application-controller reconcile이 nil pointer 오류 이후 과거 시각에 멈춰 있었기 때문이다. orphan 평가 범위를 바로잡고 controller를 재시작하자 모든 Karpenter CR이 Synced로 재평가됐다.
+
+**핵심 교훈**
+
+제어면의 관측 결과가 실제 상태와 모순될 때는 리소스를 반복 수정하기 전에 관측기를 갱신하고 캐시 시각을 확인해야 한다.
+
+---
+
+### [회고 18] [새 KMS 키로는 옛 로그를 열 수 없었다: Object Lock과 암호 키의 생명주기](./18-loki-object-lock-legacy-kms.md)
+
+**핵심 지식**
+
+- S3 SSE-KMS와 객체별 KMS key binding
+- Object Lock COMPLIANCE
+- KMS pending deletion과 crypto-shredding
+- IAM S3 권한과 KMS decrypt 권한의 분리
+- IAM role 재생성 후 stale principal ID
+
+**스토리라인**
+
+재배포 후 Loki bucket의 기본 암호화는 새 KMS 키를 사용했지만, Object Lock으로 보존된 기존 객체는 옛 키로 암호화돼 있었다. 철거 때 삭제 예약된 옛 키 때문에 compactor가 `KMSInvalidStateException`으로 기동하지 못했다. 키 삭제를 취소하고 다시 활성화하자 backend가 복구됐지만, key policy에는 삭제된 과거 IRSA의 RoleId가 남아 있었다. 현재 role ARN으로 policy를 정렬하고 Terraform에 legacy key policy를 명시해 다음 재배포에서도 같은 객체를 읽을 수 있게 했다.
+
+**핵심 교훈**
+
+보존 기간이 데이터보다 짧은 암호 키는 보존 정책을 무효화한다. 데이터와 키의 생명주기를 함께 설계해야 한다.
+
+---
+
+### [회고 19] [한 글자가 플랫폼 Application 전체를 막았다: 보이지 않는 YAML control character 추적](./19-yaml-c1-control-character.md)
+
+**핵심 지식**
+
+- UTF-8 C1 control character
+- Argo CD Multi-Source manifest generation
+- Kustomize의 오류 위치 해석
+- 바이트 검사와 화면상 문자열의 차이
+
+**스토리라인**
+
+Grafana용 Secret은 준비됐지만 kube-prometheus-stack은 manifest를 생성하지 못했다. 오류는 `network-policy.yaml: control characters are not allowed`였으나 일반적인 ASCII 제어문자 검사에서는 아무것도 나오지 않았다. UTF-8 바이트열을 조사해 주석 안의 `C2 80` C1 문자를 찾았고, 깨진 주석을 정상 ASCII 문장으로 교체하자 Kustomize build와 Grafana ExternalSecret 동기화가 재개됐다.
+
+**핵심 교훈**
+
+화면에 보이는 텍스트가 파일의 실제 바이트를 모두 설명하지는 않는다. 파서 오류가 재현되면 문자열이 아니라 인코딩 계층까지 내려가야 한다.
+
+---
+
+### 기존 회고 9에 추가할 후속 에필로그
+
+두 번째 철거에서는 L4→L3→L2가 정상 완료됐지만 L1 VPC 삭제가 19분간 멈췄다. AWS Load Balancer Controller가 만든 `k8s-traffic-*` Security Group이 Terraform과 Kubernetes 양쪽의 소유권 밖에 남아 있었기 때문이다. 해당 orphan SG를 확인·삭제하자 VPC가 즉시 제거됐다. 이 사건은 별도 회고로 분리하지 않고 **회고 9의 “orphan sweep은 태그 종류별로 수행해야 한다”는 후속 사례**로 추가한다.
+
+---
+
 ## 후속 조사 후 별도 회고 여부를 결정할 사건
 
 ### A. node-local-dns 전 노드 CrashLoop
@@ -234,11 +456,11 @@ L4→L1 철거 스크립트는 ECR, Load Balancer, Karpenter 인스턴스, S3를
 
 ### B. Reloader CrashLoop
 
-Reloader가 Degraded였으며, 이 때문에 Secret 변경 후 자동 rollout이 보장되지 않았다. 당시 정확한 stack trace가 없어 별도 회고로 확정하지 않는다.
+원인이 `replicas: 2`, `enableHA: false`, `POD_NAME` 누락의 조합으로 확인됐다. 시즌 2 **회고 10**으로 승격한다.
 
 ### C. 서비스 Application Missing
 
-order, payment, cart, user, product, gateway 서비스가 OutOfSync/Missing이었다. 초기 기록에는 AppProject whitelist 문제 단서가 있었지만 전체 서비스의 공통 원인과 개별 원인을 충분히 검증하지 못했다. 재배포 후 동기화 실패 로그를 수집하여 하나의 GitOps 정책 회고 또는 서비스별 문제로 분류한다.
+서비스 자체의 Missing은 복구됐지만, 과정에서 확인한 원인은 Secret schema, 이미지 부재, CPU architecture, 동적 필드 drift 등 서로 달랐다. 하나의 “서비스 Missing” 회고로 뭉치지 않고 시즌 2의 관련 사건에 나눠 기록한다.
 
 ---
 
@@ -255,8 +477,18 @@ order, payment, cart, user, product, gateway 서비스가 OutOfSync/Missing이�
 7. 회고 7 — RDS 비밀번호 SSOT
 8. 회고 8 — endpoint 동적 주입과 Multi-Source
 9. 회고 9 — teardown 자동화
+10. 회고 10 — Reloader HA 설정 계약
+11. 회고 11 — OAuth secret 회전
+12. 회고 12 — ECR artifact SSOT
+13. 회고 13 — CPU architecture 계약
+14. 회고 14 — Argo CD 동적 필드와 제어권
+15. 회고 15 — ingress-core 연쇄 장애
+16. 회고 16 — ExternalDNS hostname 충돌
+17. 회고 17 — Karpenter reconcile·orphan 오판
+18. 회고 18 — Object Lock과 legacy KMS
+19. 회고 19 — YAML control character
 
-가장 교육적이고 독립적으로 완결되는 첫 글은 **회고 6(Otel→OpenSearch)**, 전체 복구 서사의 시작점으로 적합한 첫 글은 **회고 1(Karpenter 부트스트랩)**이다.
+시즌 2는 실제 복구 순서를 이해하려면 회고 10부터 번호대로 읽는 것이 좋다. 개별적으로 가장 독립적인 글은 **회고 13(CPU architecture)**과 **회고 16(ExternalDNS)**이고, 제어면을 깊게 이해하려면 **회고 14→17** 순서가 적합하다.
 
 ---
 
@@ -273,3 +505,15 @@ order, payment, cart, user, product, gateway 서비스가 OutOfSync/Missing이�
 - [x] 회고 7 본문
 - [x] 회고 8 본문
 - [x] 회고 9 본문
+- [x] 시즌 2 목차 초안
+- [x] 회고 9 두 번째 철거 에필로그
+- [x] 회고 10 본문
+- [x] 회고 11 본문
+- [x] 회고 12 본문
+- [x] 회고 13 본문
+- [x] 회고 14 본문
+- [x] 회고 15 본문
+- [x] 회고 16 본문
+- [x] 회고 17 본문
+- [x] 회고 18 본문
+- [x] 회고 19 본문

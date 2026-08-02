@@ -4,7 +4,8 @@
 
 ## 문서 정보
 
-- 사건 시각: 2026-07-31 03:17~04:20 KST
+- 최초 사건 시각: 2026-07-31 03:17~04:20 KST
+- 재검증 시각: 2026-07-31 23:30~2026-08-01 00:30 KST
 - 대상 환경: AWS `ap-northeast-2`, `prod`
 - 실행 진입점: `localy/infrastructure/environments/prod/teardown.ps1`
 - Terraform 계층: L1 network → L2 EKS → L3 app integration → L4 bootstrap
@@ -13,7 +14,8 @@
 - 재개 중 오류: PowerShell이 `apply.local.tfvars`를 `.local.tfvars`로 전달
 - L2 지연 원인: node Security Group을 사용 중인 EC2 ENI
 - 의도적 잔여: Object Lock COMPLIANCE가 적용된 Loki S3 bucket
-- 최종 결과: L1~L4 Terraform state의 resource 수 0
+- 최초 결과: L1~L4 Terraform state의 resource 수 0
+- 재검증 결과: L4→L1 자동 철거 성공(`exit 0`), 단 L1에서 orphan `k8s-traffic-*` Security Group 수동 제거 1회
 - AWS 검증 결과: EKS, VPC, RDS, OpenSearch, Karpenter/EKS EC2 없음
 
 ---
@@ -1062,18 +1064,227 @@ Object version마다 retain-until-date가 다를 수 있으므로 bucket 설정�
 
 ## 5.11 재발 방지 체크리스트
 
-- [ ] apply와 destroy의 var-file 입력을 동일하게 관리한다.
-- [ ] native command 인자는 배열로 전달한다.
-- [ ] L4→L1 역순을 강제한다.
-- [ ] controller를 EC2 cleanup 전에 중지한다.
-- [ ] L2 직전에 worker를 다시 조회한다.
+- [x] apply와 destroy의 var-file 입력을 동일하게 관리한다.
+- [x] native command 인자는 배열로 전달한다.
+- [x] L4→L1 역순을 강제한다.
+- [x] controller를 EC2 cleanup 전에 중지한다.
+- [x] L2 직전에 worker를 다시 조회한다.
 - [ ] tag 조회와 SG/ENI 역추적을 함께 사용한다.
 - [ ] Terraform retry 전에 오류 유형을 분류한다.
-- [ ] `state rm`을 resource 삭제로 간주하지 않는다.
+- [x] `state rm`을 resource 삭제로 간주하지 않는다.
 - [ ] Object Lock orphan을 별도 registry로 관리한다.
-- [ ] state 0과 AWS inventory 0을 각각 검증한다.
+- [x] state 0과 AWS inventory 0을 각각 검증한다.
 - [ ] `-SkipConfirm` 실행에 account guardrail을 둔다.
-- [ ] 실패 지점부터 안전하게 재개할 수 있게 만든다.
+- [x] 실패 지점부터 안전하게 재개할 수 있게 만든다.
+
+---
+
+## 6. 후속 에필로그 — 개선된 스크립트는 두 번째 철거를 통과했는가
+
+첫 사건에서 얻은 교훈을 `teardown.ps1`에 반영한 뒤, 같은 환경을 다시 구축해 운영 보정을 마치고 두 번째 철거를 수행했다.
+
+이번 실행은 단순한 비용 절감 작업이 아니었다. 다음 질문에 대한 재현 시험이었다.
+
+```text
+필수 입력값을 자동으로 전달하는가?
+긴 L3 destroy 뒤 worker를 다시 수거하는가?
+Argo와 AWS Load Balancer Controller의 reconciliation을 먼저 멈추는가?
+Object Lock bucket과 legacy KMS key를 의도적으로 보존하는가?
+중간 개입이 있더라도 Terraform state와 AWS inventory가 같은 결론에 도달하는가?
+```
+
+### 6.1 두 번째 실행의 출발 조건
+
+실행 전 다음 상태를 확인했다.
+
+```text
+AWS account: 533003975005
+Region: ap-northeast-2
+EKS cluster: prod-eks
+L2 apply.local.tfvars: 존재
+L3 apply.local.tfvars: 존재
+실행 옵션: -SkipConfirm
+```
+
+스크립트는 다음 순서로 실행됐다.
+
+```text
+[1] ECR repository 강제 삭제
+[2] Karpenter/EKS worker 종료
+[3] k8s-* Load Balancer와 Target Group 삭제
+[4] CloudTrail/store S3 비우기
+[5] Loki Object Lock graph를 Terraform state에서 분리
+[6] Argo Application·Ingress·TargetGroupBinding 삭제
+[7] L4 → L3 → L2 → L1 terraform destroy
+```
+
+Loki vault는 삭제 대상으로 취급하지 않았다. 기존 Object Lock 객체를 복호화하는 legacy KMS key 역시 Enabled 상태로 보존했다.
+
+### 6.2 이전 실패는 재현되지 않았다
+
+첫 번째 철거에서 중단시킨 두 문제는 재발하지 않았다.
+
+```text
+이전: L2 required variable 누락
+이번: apply.local.tfvars 자동 감지·전달
+
+이전: 긴 L3 동안 worker가 남아 node SG 삭제 지연
+이번: L2 직전 Karpenter/EKS worker 재조회·종료
+```
+
+실제 완료 순서는 다음과 같았다.
+
+```text
+OK: l4-bootstrap destroyed
+OK: l3-app-integration destroyed
+OK: l2-eks destroyed
+```
+
+특히 L3에서는 OpenSearch 삭제에 약 14분이 걸렸다. 이는 실패가 아니라 AWS managed service의 비동기 삭제를 Terraform이 기다리는 정상 구간이었다. 같은 `Still destroying...` 메시지라도 dependency가 남아 멈춘 것인지, AWS가 유효한 삭제 작업을 진행 중인지 구분해야 한다.
+
+### 6.3 L1 VPC가 마지막 한 객체에서 멈췄다
+
+L1은 subnet, VPC endpoint, route table까지 정상적으로 제거했다. 그러나 VPC `vpc-014fcff74608cfdbc` 삭제가 10분 이상 `Still destroying`에 머물렀다.
+
+이 시점의 inventory는 다음과 같았다.
+
+```text
+subnet: 없음
+network interface: 없음
+load balancer: 없음
+target group: 없음
+NAT gateway: 없음
+internet gateway attachment: 없음
+EC2 instance: 없음
+VPC endpoint: 없음
+```
+
+표면적으로는 VPC를 막을 dependency가 없어 보였다. 더 넓게 조회하자 Security Group 두 개가 남아 있었다.
+
+```text
+sg-01291ee19d6723d39  default
+sg-058e786f7a80e68d7  k8s-traffic-prodeks-e91bc47b4a
+```
+
+`default` Security Group은 VPC와 함께 사라지는 기본 객체다. 문제는 `k8s-traffic-*`이었다. 이 이름은 AWS Load Balancer Controller가 backend traffic 허용을 위해 생성한 Security Group이다.
+
+### 6.4 왜 기존 pre-cleanup이 이 객체를 놓쳤는가
+
+스크립트의 네트워크 pre-cleanup은 다음 리소스를 대상으로 했다.
+
+```text
+k8s-* Load Balancer
+k8s-* Target Group
+TargetGroupBinding
+Karpenter/EKS EC2
+관련 ENI
+```
+
+그러나 Load Balancer Controller가 별도로 만든 `k8s-traffic-*` Security Group은 조회·삭제 목록에 없었다. Load Balancer와 Target Group이 먼저 사라지면서 이 SG를 사용하는 ENI도 없었지만, SG 객체 자체는 VPC 안에 남았다.
+
+이 사건의 핵심은 다음과 같다.
+
+```text
+Load Balancer 삭제 완료
+  ≠ Load Balancer Controller가 만든 모든 보조 resource 삭제 완료
+```
+
+Kubernetes controller가 만든 cloud resource는 하나의 종류로 끝나지 않는다. Ingress 하나에서도 Load Balancer, Target Group, listener, rule, security group, ENI가 서로 다른 생명주기를 가질 수 있다.
+
+### 6.5 SG를 지우자 진행 중인 Terraform이 스스로 완료됐다
+
+먼저 해당 SG를 사용하는 ENI가 없는지 확인했다.
+
+```powershell
+aws ec2 describe-network-interfaces `
+  --region ap-northeast-2 `
+  --filters "Name=group-id,Values=sg-058e786f7a80e68d7"
+```
+
+결과가 비어 있음을 확인한 뒤 SG를 삭제했다.
+
+```powershell
+aws ec2 delete-security-group `
+  --region ap-northeast-2 `
+  --group-id sg-058e786f7a80e68d7
+```
+
+별도의 `terraform destroy` 재실행은 필요하지 않았다. 이미 VPC 삭제를 retry하던 Terraform provider가 dependency 해소를 감지해 같은 실행 안에서 완료했다.
+
+```text
+module.network.module.vpc.aws_vpc.this[0]:
+  Destruction complete after 19m7s
+
+Destroy complete! Resources: 73 destroyed.
+OK: l1-network destroyed
+TEARDOWN_EXIT=0
+```
+
+이 차이는 중요하다. Terraform process가 살아 있고 provider가 retry 중인 상황에서 중복 destroy를 시작하면 state lock 경쟁과 진단 혼선을 만들 수 있다. 외부 dependency만 안전하게 제거하고 기존 실행이 완료되는지 관찰하는 편이 낫다.
+
+### 6.6 두 번째 acceptance verification
+
+철거 종료 후 Terraform의 성공 메시지만 믿지 않고 AWS inventory를 다시 확인했다.
+
+```text
+EKS cluster: 없음
+prod VPC: 없음
+NAT gateway: 없음
+prod-eks worker EC2: 없음
+k8s-* Load Balancer: 없음
+```
+
+계정에는 AWS 기본 VPC만 남았다.
+
+```text
+vpc-04663266aa5036238
+CIDR 172.31.0.0/16
+```
+
+의도적 orphan도 설계대로 유지됐다.
+
+```text
+s3://prod-eks-loki-logs-vault: 존재
+legacy Loki KMS key: Enabled
+```
+
+따라서 두 번째 철거의 최종 판정은 다음과 같다.
+
+```text
+비용이 큰 prod compute/network resource: 제거 완료
+보존 정책상 남겨야 하는 resource: 명시적으로 보존
+Terraform 종료 코드: 0
+수동 개입: orphan k8s-traffic Security Group 1개 삭제
+```
+
+### 6.7 이것은 “자동화 완성”이 아니라 새 테스트 케이스다
+
+두 번째 철거는 첫 번째 개선 사항이 실제로 작동함을 입증했다. 하지만 완전 무인 철거에는 아직 도달하지 않았다. `k8s-traffic-*` SG를 사람이 찾아 삭제했기 때문이다.
+
+다음 보완은 단순히 이름 prefix만 보고 모든 SG를 삭제하는 방식이어서는 안 된다. 같은 계정·VPC에서 다른 cluster나 운영자가 만든 SG를 잘못 지울 수 있다.
+
+안전한 절차는 다음과 같아야 한다.
+
+```text
+1. 대상 prod VPC ID 확정
+2. VPC 안의 non-default SG 조회
+3. load balancer controller 소유 tag/name 확인
+4. 연결 ENI가 0인지 검증
+5. 대상 cluster의 SG만 삭제
+6. VPC delete 재시도
+```
+
+또한 post-sweep acceptance criteria에 다음 항목을 추가해야 한다.
+
+```text
+[ ] prod VPC의 non-default Security Group 없음
+[ ] k8s-traffic-* Security Group 없음
+[ ] SG를 참조하는 ENI 없음
+```
+
+이 에필로그가 추가한 교훈은 간단하다.
+
+> orphan sweep은 “우리가 알고 있는 resource 목록을 지우는 단계”가 아니라, 삭제하려는 경계(VPC) 안에 무엇이 남았는지 역으로 열거하는 검증 단계여야 한다.
 
 ---
 
@@ -1103,16 +1314,23 @@ prod 인프라 완전 철거 지연
 │  ├─ 90일 retention
 │  └─ Terraform state에서 의도적으로 분리
 │
+├─ 두 번째 철거의 VPC 삭제 지연
+│  ├─ subnet/ENI/LB/endpoint는 모두 제거됨
+│  ├─ Load Balancer Controller가 만든 k8s-traffic SG 잔존
+│  ├─ 기존 sweep은 LB/TG/EC2만 탐색
+│  └─ orphan SG 삭제 후 실행 중인 Terraform이 완료
+│
 └─ 해결
    ├─ apply.local.tfvars를 destroy에 전달
    ├─ quoted full-path argument 사용
    ├─ SG→ENI→EC2 역추적 후 instance 종료
    ├─ L2→L1 destroy 재개
    ├─ L1~L4 state resources=0 확인
+   ├─ VPC 내부 non-default SG inventory 확인
    └─ AWS inventory와 의도적 orphan 별도 검증
 ```
 
 ## 한 문장으로 남기는 교훈
 
-**배포 자동화만큼 철거 자동화도 입력값·controller reconciliation·cloud dependency·보존 정책을 이해하고, 실패 지점부터 안전하게 재개할 수 있는 운영 코드여야 한다.**
+**배포 자동화만큼 철거 자동화도 입력값·controller reconciliation·cloud dependency·보존 정책을 이해해야 하며, 마지막에는 삭제 대상의 경계 안을 역으로 열거해 Terraform이 몰랐던 orphan까지 검증해야 한다.**
 

@@ -1,28 +1,30 @@
 # ========================================================================
-# Legacy Loki KMS key — Object Lock objects still encrypted with pre-rebuild CMK
+# Legacy Loki KMS keys — Object Lock ciphertext still encrypted with prior CMKs
 # ========================================================================
-# Teardown leaves s3://prod-eks-loki-logs-vault (COMPLIANCE) and may schedule
-# deletion of the previous CMK. After rebuild, new writes use aws_kms_key.loki_s3
-# but old objects still need this key for Decrypt.
+# Preserve set (teardown.ps1): Object Lock bucket + every CMK that still
+# encrypts locked object versions + IRSA principal rebind on apply.
+#
+# New writes use aws_kms_key.loki_s3. Orphan keys from prior teardowns are
+# listed here (and in gitignored loki-preserve-set.auto.tfvars when generated).
 #
 # SSOT for AllowLokiIRSACrypto: current L2 IRSA ARN (not stale AROA RoleId).
-# Set loki_legacy_kms_key_id = "" after retention expiry + object re-encrypt/delete.
+# Set loki_legacy_kms_key_ids = [] after retention expiry + object gone.
 # ========================================================================
 
-variable "loki_legacy_kms_key_id" {
-  description = "Pre-rebuild Loki S3 CMK id still required for Object-Lock objects. Empty skips management."
-  type        = string
-  default     = "c4e097ff-d777-4c9b-9098-e3d467a15f95"
+variable "loki_legacy_kms_key_ids" {
+  description = "Prior Loki S3 CMK ids still required for Object-Lock objects. Empty skips management."
+  type        = list(string)
+  default     = ["c4e097ff-d777-4c9b-9098-e3d467a15f95"]
 }
 
 data "aws_kms_key" "loki_legacy" {
-  count  = var.loki_legacy_kms_key_id != "" ? 1 : 0
-  key_id = var.loki_legacy_kms_key_id
+  for_each = toset(var.loki_legacy_kms_key_ids)
+  key_id   = each.value
 }
 
 resource "aws_kms_key_policy" "loki_legacy" {
-  count  = var.loki_legacy_kms_key_id != "" ? 1 : 0
-  key_id = data.aws_kms_key.loki_legacy[0].id
+  for_each = data.aws_kms_key.loki_legacy
+  key_id   = each.value.id
 
   policy = jsonencode({
     Version = "2012-10-17"
