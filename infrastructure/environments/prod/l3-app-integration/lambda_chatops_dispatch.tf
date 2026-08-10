@@ -124,8 +124,11 @@ resource "aws_lambda_function" "chatops_dispatch" {
   timeout       = 30
   memory_size   = 256
 
-  # Wave 4 FinOps / Slack 429 guard
-  reserved_concurrent_executions = 5
+  # Wave 4 FinOps / Slack 429 guard — reserved concurrency needs
+  # UnreservedConcurrentExecutions >= 10 after reservation. This account's
+  # Concurrent executions quota is 10, so reserved=5 fails PutFunctionConcurrency.
+  # Re-enable after raising L-B99A9384 (e.g. reserved_concurrent_executions = 5).
+  # reserved_concurrent_executions = 5
 
   filename         = data.archive_file.chatops_dispatch_handler.output_path
   source_code_hash = data.archive_file.chatops_dispatch_handler.output_base64sha256
