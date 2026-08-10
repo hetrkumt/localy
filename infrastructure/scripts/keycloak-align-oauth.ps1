@@ -10,6 +10,7 @@
 #>
 param(
   [switch]$Execute,
+  [switch]$SkipDbRecreate,
   [string]$Region = "ap-northeast-2"
 )
 
@@ -19,11 +20,12 @@ $ns = "auth-namespace"
 function Write-Step([string]$Msg) { Write-Host "==== $Msg ====" -ForegroundColor Cyan }
 
 if (-not $Execute) {
-  Write-Host "DRY-RUN: would recreate keycloak DB, restart STS, align client secrets from SM."
+  Write-Host "DRY-RUN: would recreate keycloak DB (unless -SkipDbRecreate), restart STS, align client secrets from SM."
   Write-Host "Re-run with -Execute to apply."
   exit 0
 }
 
+if (-not $SkipDbRecreate) {
 Write-Step "1) Scale Keycloak to 0"
 kubectl -n $ns scale sts keycloak --replicas=0
 kubectl -n $ns rollout status sts/keycloak --timeout=180s
@@ -148,14 +150,17 @@ kubectl -n $ns logs job/keycloak-recreate-db
 Write-Step "3) Scale Keycloak back to 3 (bootstrap admin from SM)"
 kubectl -n $ns scale sts keycloak --replicas=3
 kubectl -n $ns rollout status sts/keycloak --timeout=300s
-
+} else {
+  Write-Step "1-3) Skip DB recreate (admin already bootstrapped)"
+  kubectl -n $ns rollout status sts/keycloak --timeout=120s
+}
 Write-Step "4) Wait for admin token (SM password)"
 $deadline = (Get-Date).AddMinutes(5)
 $tokenOk = $false
 while ((Get-Date) -lt $deadline) {
   $prev = $ErrorActionPreference
   $ErrorActionPreference = "Continue"
-  $out = kubectl -n $ns exec keycloak-0 -c keycloak -- sh -c 'PASS=$(cat /opt/bitnami/keycloak/secrets/KEYCLOAK_ADMIN_PASSWORD); /opt/bitnami/keycloak/bin/kcadm.sh config credentials --server http://127.0.0.1:8080 --realm master --user admin --password "$PASS" >/tmp/kcadm.out 2>/tmp/kcadm.err; echo EXIT:$?; head -c 120 /tmp/kcadm.err' 2>$null
+  $out = kubectl -n $ns exec keycloak-0 -c keycloak -- sh -c 'PASS=$(cat /opt/bitnami/keycloak/secrets/KEYCLOAK_ADMIN_PASSWORD); CFG=/tmp/kcadm.config; /opt/bitnami/keycloak/bin/kcadm.sh config credentials --server http://127.0.0.1:8080 --realm master --user admin --password "$PASS" --config "$CFG" >/tmp/kcadm.out 2>/tmp/kcadm.err; echo EXIT:$?; head -c 120 /tmp/kcadm.err' 2>$null
   $ErrorActionPreference = $prev
   Write-Host $out
   if ($out -match "EXIT:0") { $tokenOk = $true; break }
@@ -176,28 +181,30 @@ Write-Step "6) Ensure clients exist and set secrets via kcadm"
 $alignScript = @"
 set -e
 PASS=`$(cat /opt/bitnami/keycloak/secrets/KEYCLOAK_ADMIN_PASSWORD)
-/opt/bitnami/keycloak/bin/kcadm.sh config credentials --server http://127.0.0.1:8080 --realm master --user admin --password "`$PASS" >/dev/null
+CFG=/tmp/kcadm.config
+/opt/bitnami/keycloak/bin/kcadm.sh config credentials --server http://127.0.0.1:8080 --realm master --user admin --password "`$PASS" --config "`$CFG" >/dev/null
 
 ensure_client() {
-  CID=`$(/opt/bitnami/keycloak/bin/kcadm.sh get clients -r localy -q clientId=`$1 --fields id --format csv --noquotes 2>/dev/null | head -1)
+  CID=`$(/opt/bitnami/keycloak/bin/kcadm.sh get clients -r localy -q clientId=`$1 --fields id --format csv --noquotes --config "`$CFG" 2>/dev/null | head -1)
   if [ -z "`$CID" ] || [ "`$CID" = "id" ]; then
     echo "CREATE `$1"
     /opt/bitnami/keycloak/bin/kcadm.sh create clients -r localy \
+      --config "`$CFG" \
       -s clientId=`$1 -s enabled=true -s publicClient=false \
       -s serviceAccountsEnabled=true -s standardFlowEnabled=true \
       -s directAccessGrantsEnabled=true -s clientAuthenticatorType=client-secret >/dev/null
-    CID=`$(/opt/bitnami/keycloak/bin/kcadm.sh get clients -r localy -q clientId=`$1 --fields id --format csv --noquotes | head -1)
+    CID=`$(/opt/bitnami/keycloak/bin/kcadm.sh get clients -r localy -q clientId=`$1 --fields id --format csv --noquotes --config "`$CFG" | head -1)
   else
     echo "EXISTS `$1"
   fi
-  /opt/bitnami/keycloak/bin/kcadm.sh update clients/`$CID -r localy -s secret=`$2 >/dev/null
+  /opt/bitnami/keycloak/bin/kcadm.sh update clients/`$CID -r localy -s secret=`$2 --config "`$CFG" >/dev/null
   echo "SECRET_SET `$1"
 }
 
 ensure_client user-service "$($userOauth.clientSecret)"
 ensure_client edge-service "$($edgeOauth.clientSecret)"
 echo CLIENTS:
-/opt/bitnami/keycloak/bin/kcadm.sh get clients -r localy --fields clientId --format csv --noquotes
+/opt/bitnami/keycloak/bin/kcadm.sh get clients -r localy --fields clientId --format csv --noquotes --config "`$CFG"
 "@
 
 $prev = $ErrorActionPreference
@@ -218,7 +225,7 @@ echo SMOKE_USERS_EXIT:`$?
 "@
 # Simpler smoke with curl from a short-lived approach using kcadm get (already authed)
 $ErrorActionPreference = "Continue"
-$smokeOut = kubectl -n $ns exec keycloak-0 -c keycloak -- sh -c 'PASS=$(cat /opt/bitnami/keycloak/secrets/KEYCLOAK_ADMIN_PASSWORD); /opt/bitnami/keycloak/bin/kcadm.sh config credentials --server http://127.0.0.1:8080 --realm master --user admin --password "$PASS" >/dev/null; /opt/bitnami/keycloak/bin/kcadm.sh get clients -r localy -q clientId=user-service --fields clientId,id --format csv --noquotes; /opt/bitnami/keycloak/bin/kcadm.sh get clients -r localy -q clientId=edge-service --fields clientId,id --format csv --noquotes' 2>$null
+$smokeOut = kubectl -n $ns exec keycloak-0 -c keycloak -- sh -c 'PASS=$(cat /opt/bitnami/keycloak/secrets/KEYCLOAK_ADMIN_PASSWORD); CFG=/tmp/kcadm.config; /opt/bitnami/keycloak/bin/kcadm.sh config credentials --server http://127.0.0.1:8080 --realm master --user admin --password "$PASS" --config "$CFG" >/dev/null; /opt/bitnami/keycloak/bin/kcadm.sh get clients -r localy -q clientId=user-service --fields clientId,id --format csv --noquotes --config "$CFG"; /opt/bitnami/keycloak/bin/kcadm.sh get clients -r localy -q clientId=edge-service --fields clientId,id --format csv --noquotes --config "$CFG"' 2>$null
 $ErrorActionPreference = $prev
 Write-Host "clients:"
 Write-Host $smokeOut
