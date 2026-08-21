@@ -1,6 +1,11 @@
 # ========================================================================
 # Loki S3 — Customer Managed Key (CMK) for SSE-KMS & Crypto-shredding
 # ========================================================================
+# Part of Loki Object-Lock preserve set with aws_s3_bucket.loki_logs:
+# teardown.ps1 state-rms this key (does not ScheduleKeyDeletion) while
+# COMPLIANCE retention still needs Decrypt. Alias is deleted in AWS so the
+# next apply can attach alias/<env>-loki-s3-key to a new CMK for new writes.
+# ========================================================================
 
 resource "aws_kms_key" "loki_s3" {
   description             = "Loki S3 Logs Encryption Key (Supports Crypto-shredding)"
@@ -61,10 +66,18 @@ resource "aws_kms_key" "loki_s3" {
   })
 
   tags = {
-    Name        = "${var.env_name}-loki-s3-kms"
-    Environment = var.env_name
-    ManagedBy   = "terraform"
-    Purpose     = "loki-s3-encryption"
+    Name          = "${var.env_name}-loki-s3-kms"
+    Environment   = var.env_name
+    ManagedBy     = "terraform"
+    Purpose       = "loki-s3-encryption"
+    ProtectedBy   = "object-lock"
+    PreserveWith  = "${var.env_name}-eks-loki-logs-vault"
+  }
+
+  lifecycle {
+    # Teardown must state-rm this key while Object Lock vault exists.
+    # Accidental destroy would ScheduleKeyDeletion (~7d) vs retention (~90d).
+    prevent_destroy = true
   }
 }
 
