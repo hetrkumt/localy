@@ -173,6 +173,4 @@ Kubernetes, Kustomize, External Secrets, Karpenter, KEDA
 
 Prometheus, Grafana, Loki, Fluent Bit, OpenTelemetry
 
-## Project status
 
-현재 인프라 bring-up 및 CI/CD·GitOps 계약 검증 단계입니다. 구성 파일에는 실제 구축 과정에서 발견한 부트스트랩 순서, IAM 전파, CRD 소유권, Object Lock과 같은 운영 제약이 반영되어 있습니다.
