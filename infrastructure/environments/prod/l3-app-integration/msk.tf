@@ -38,7 +38,8 @@ resource "aws_security_group" "msk" {
 # 2. MSK Cluster 본체
 resource "aws_msk_cluster" "msk" {
   cluster_name           = "${var.env_name}-localy-msk"
-  kafka_version          = "3.6.0"
+  # AWS: kafka.t3.small 등 Standard 브로커는 3.6.0 더 이상 미지원 (2026-10 bring-up)
+  kafka_version          = "3.8.x"
   number_of_broker_nodes = 3 # 3개 AZ 가용성 분산
 
   broker_node_group_info {

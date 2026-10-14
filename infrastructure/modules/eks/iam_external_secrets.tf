@@ -34,26 +34,17 @@ resource "aws_iam_role" "eso_controller" {
   assume_role_policy = data.aws_iam_policy_document.eso_assume_role_policy.json
 }
 
-# 3. Least Privilege IAM Policy (Get/Describe secrets matching 'localy-*' prefix)
+# 3. Controller IAM — V60: NO Secrets Manager /localy/* (or localy-*) broad read.
+# SM Get/Describe must go through SecretStore jwt → per-service IRSA only.
+# SSM Parameter read kept for controller platform wiring (not workload SM paths).
 resource "aws_iam_policy" "eso_controller" {
   name        = "${var.cluster_name}-eso-controller-policy"
+  # Keep description stable — AWS provider treats description change as ForceNew.
   description = "IAM Policy for External Secrets Operator with Least Privilege"
 
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      {
-        Sid    = "AllowSecretsManagerRead"
-        Effect = "Allow"
-        Action = [
-          "secretsmanager:GetSecretValue",
-          "secretsmanager:DescribeSecret"
-        ]
-        Resource = [
-          "arn:aws:secretsmanager:ap-northeast-2:${data.aws_caller_identity.current.account_id}:secret:localy-*",
-          "arn:aws:secretsmanager:ap-northeast-2:${data.aws_caller_identity.current.account_id}:secret:/localy/*"
-        ]
-      },
       {
         Sid    = "AllowSSMParameterRead"
         Effect = "Allow"
